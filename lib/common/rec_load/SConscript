@@ -1,0 +1,24 @@
+Import('env')
+from os import path
+
+# --------------------------------------------------------------------------
+name       = 'common_rec_load'
+sources    = env.DWAGlob('*.cc')
+incdir     = [str(env.Dir('../..').srcnode())]
+components = [
+		'common_rec_time',
+             ]
+# --------------------------------------------------------------------------
+publicHeaders = [
+   'RecLoad.h'
+]
+env.DWAInstallInclude(publicHeaders, 'mcrt_computation/common/rec_load')
+env.DWAUseComponents(components)
+env.Prepend (CPPPATH=incdir)
+lib = env.DWASharedLibrary(name, sources)
+target = env.DWAInstallLib(lib)
+env.DWAComponent(name, LIBS=target, CPPPATH=incdir, COMPONENTS=components)
+env.DWAInstallSConscriptStub(name, LIBS=target,
+                             CPPPATH=[env.Dir('$INSTALL_DIR/include')],
+                             COMPONENTS=components)
+env.DWALinkValidate(name)

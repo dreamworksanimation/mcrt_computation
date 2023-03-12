@@ -1,0 +1,88 @@
+{
+    "name": "a4multi",
+    "computations": {
+        "(client)": {
+            "messages": {
+                "merge": "*"
+            }
+        }, 
+        
+        "dispatch": {
+            "entry": "yes",
+            "continuous": "false", 
+            "dso": "libmcrt_computation_mcrt_dispatch.so", 
+            "fps": 1,  
+            "requirements": { 
+                "executorBinary": "execComp",
+                "rez_packages": "arras4_core_impl-4 mcrt_computation-4"
+            },
+            "messages": {
+                "(client)": {
+                    "accept": [
+                        "RDLMessage", 
+                        "GenericMessage", 
+                        "RenderedFrame", 
+                        "ViewportMessage", 
+                        "JSONMessage", 
+                        "RenderSetupMessage"
+                    ]
+                }
+            }, 
+            "numMachines": "$arrayNumber.mcrt", 
+            "sendLogMessages": false
+        },
+                 
+        "mcrt": {
+            "arrayExpand": 4,
+            "dso": "libmcrt_computation_mcrt.so", 
+            "fps": 1, 
+            "imageEncoding": 3, 
+            "machineId": "$arrayIndex", 
+            "numMachines": "$arrayNumber", 
+            "sendLogMessages": false,
+            "requirements": {    
+                "executorBinary": "execComp",
+                "rez_packages": "arras4_core_impl-4 mcrt_computation-4",
+                "resources": {
+                    "cores": 5,
+                    "memoryMB": 16384
+                }
+            },
+            
+            "messages": {
+                "(client)": {
+                    "accept": [
+                        "GenericMessage", 
+                        "ViewportMessage", 
+                        "JSONMessage"
+                    ]
+                },
+                "dispatch": "*"
+            }
+        },
+        
+        "merge": {
+            "dso": "libmcrt_computation_mcrt_merge.so", 
+            "fps": 1, 
+            "imageEncoding": 3,               
+            "requirements": {  
+                "executorBinary": "execComp",
+                "rez_packages": "arras4_core_impl-4 mcrt_computation-4"
+            },      
+            "messages": {
+                "(client)": {
+                    "accept": [
+                        "ViewportMessage"
+                    ]
+                }, 
+                "mcrt": {
+                    "accept": [
+                        "PartialFrame"
+                    ]
+                }
+            }, 
+            "numMachines": "$arrayNumber.mcrt", 
+            "sendLogMessages": false
+        }
+    }
+}

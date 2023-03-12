@@ -1,0 +1,39 @@
+Import('env')
+from os import path
+# ------------------------------------------
+name       = 'progmcrt_computation'
+libname    = 'computation_progmcrt'
+sources    = env.DWAGlob('*.cc')
+incdir     = [str(env.Dir('..').srcnode())]
+components = [
+    'arras4_log',
+    'common_fb_util',
+    'common_geometry',
+    'common_grid_util',
+    'computation_api',
+    'grid_engine_tool',
+    'jsoncpp',
+    'common_mcrt_logging',
+    'common_rec_load',
+    'computation_engine_mcrt',
+    'engine_mcrt',
+    'mcrt_messages',
+    'message_api',
+    'render_util',
+    'rendering_rndr',
+    'rendering_shading',
+]
+
+# Set default execution mode. Without this it will default to AUTO
+cppdefines = [('MOONRAY_EXEC_MODE_DEFAULT', 'SCALAR')]
+env.PrependUnique(CPPDEFINES=cppdefines)
+
+env.DWAUseComponents(components)
+env.Replace(RPATH_AUTO_FROM_ORIGIN=True)
+
+lib = env.DWASharedLibrary(libname, sources, NO_VARIANT_NAME=True)
+target = env.DWAInstallDso(lib)
+env.DWAComponent(name, LIBS=[target], CPPPATH=incdir, COMPONENTS=components)
+
+# From breakpad.py, DWAGenerateBreakpadSymbols(path to library, name of library, installed library, env)
+env.DWAGenerateBreakpadSymbols(path.dirname(target[0].abspath), lib, target, env)

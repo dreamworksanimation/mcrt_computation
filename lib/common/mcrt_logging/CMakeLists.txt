@@ -1,0 +1,67 @@
+# Copyright 2023 DreamWorks Animation LLC
+# SPDX-License-Identifier: Apache-2.0
+
+set(component common_mcrt_logging)
+
+set(InstallIncludeDir ${PACKAGE_NAME}/common/mcrt_logging)
+set(exportGroup ${PROJECT_NAME}Targets)
+
+add_library(${component} SHARED "")
+add_library(${PROJECT_NAME}::${component} ALIAS ${component})
+
+target_sources(${component}
+    PRIVATE
+        McrtLogging.cc
+)
+
+set_property(TARGET ${component}
+    PROPERTY PUBLIC_HEADER
+        McrtLogging.h
+)
+
+target_include_directories(${component}
+    PUBLIC
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+)
+
+target_link_libraries(${component}
+    PUBLIC
+        ArrasCore::arras4_log
+        SceneRdl2::render_util)
+
+# If at Dreamworks add a SConscript stub file so others can use this library.
+SConscript_Stub(${component})
+
+# Set standard compile/link options
+McrtComputation_cxx_compile_definitions(${component})
+McrtComputation_cxx_compile_features(${component})
+McrtComputation_cxx_compile_options(${component})
+McrtComputation_link_options(${component})
+
+# -------------------------------------
+# Install the target and the export set
+# -------------------------------------
+include(GNUInstallDirs)
+
+# install the target
+install(TARGETS ${component}
+    COMPONENT ${component}
+    EXPORT ${exportGroup}
+    LIBRARY
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        NAMELINK_SKIP
+    RUNTIME
+        DESTINATION ${CMAKE_INSTALL_BINDIR}
+    ARCHIVE
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    PUBLIC_HEADER
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${InstallIncludeDir}
+)
+
+# # install the export set
+# install(
+#     EXPORT ${exportGroup}
+#     NAMESPACE ${PROJECT_NAME}::
+#     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}-${PROJECT_VERSION}
+# )

@@ -1,0 +1,35 @@
+{
+    "computations": {
+        "(client)": {
+            "messages": {
+                "mcrt": "*"
+            }
+        }, 
+        "mcrt": {
+            "dso": "libmcrt_computation_mcrt.so", 
+            "entry": "yes", 
+            "fps": 1, 
+            "imageEncoding": 3, 
+            "requirements": {
+               "executorBinary": "execComp",
+               "rez_packages": "arras4_core_impl-4 mcrt_computation-4",
+                "resources": {
+                    "maxCores": "*",
+                    "minCores": 1.0,
+                    "memoryMB": 16384
+                }
+            },
+            "messages": {
+                "(client)": {
+                    "accept": [
+                        "RDLMessage", 
+                        "GenericMessage", 
+                        "ViewportMessage", 
+                        "JSONMessage"
+                    ]
+                }
+            }
+        }
+    }, 
+    "name": "a4rdl"
+}

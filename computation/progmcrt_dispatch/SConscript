@@ -1,0 +1,28 @@
+Import('env')
+from os import path
+# ------------------------------------------
+name       = 'progmcrt_dispatch_computation'
+libname    = 'computation_progmcrt_dispatch'
+sources    = env.DWAGlob('*.cc')
+incdir     = [str(env.Dir('..').srcnode())]
+components = [
+    'arras4_log',
+    'common_grid_util',
+    'computation_api',
+    'jsoncpp',
+    'common_mcrt_logging',
+    'share_util',
+    'mcrt_messages',
+    'message_api',
+    'render_util'
+]
+
+()
+
+env.DWAUseComponents(components)
+lib = env.DWASharedLibrary(libname, sources, NO_VARIANT_NAME=True)
+target = env.DWAInstallDso(lib)
+env.DWAComponent(name, LIBS=[target], CPPPATH=incdir, COMPONENTS=components)
+
+# From breakpad.py, DWAGenerateBreakpadSymbols(path to library, name of library, installed library, env)
+env.DWAGenerateBreakpadSymbols(path.dirname(target[0].abspath), lib, target, env)

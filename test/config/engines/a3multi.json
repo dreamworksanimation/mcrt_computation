@@ -1,0 +1,85 @@
+{
+    "name": "a3multi",
+    "computations": {
+        "(client)": {
+            "messages": {
+                "merge": "*"
+            }
+        }, 
+        
+        "dispatch": {
+            "entry": "yes",
+            "continuous": "false", 
+            "dso": "libmcrt_dispatch.so", 
+            "fps": 1,  
+            "requirements": { 
+                "rez_packages": "moonray-10.0"
+            },
+            "messages": {
+                "(client)": {
+                    "accept": [
+                        "RDLMessage", 
+                        "GenericMessage", 
+                        "RenderedFrame", 
+                        "ViewportMessage", 
+                        "JSONMessage", 
+                        "RenderSetupMessage"
+                    ]
+                }
+            }, 
+            "numMachines": "$arrayNumber.mcrt", 
+            "sendLogMessages": false
+        },
+                 
+        "mcrt": {
+            "arrayExpand": 4,
+            "dso": "libmcrt.so", 
+            "fps": 1, 
+            "imageEncoding": 3, 
+            "machineId": "$arrayIndex", 
+            "numMachines": "$arrayNumber", 
+            "sendLogMessages": false,
+            "requirements": { 
+                "rez_packages": "moonray-10.0",
+                "resources": {
+                    "cores": 5,
+                    "memoryMB": 16384.0
+                }
+            },
+            
+            "messages": {
+                "(client)": {
+                    "accept": [
+                        "GenericMessage", 
+                        "ViewportMessage", 
+                        "JSONMessage"
+                    ]
+                },
+                "dispatch": "*"
+            }
+        },
+        
+        "merge": {
+            "dso": "libmcrt_merge.so", 
+            "fps": 1, 
+            "imageEncoding": 3,               
+            "requirements": { 
+                "rez_packages": "moonray-10.0"
+            },      
+            "messages": {
+                "(client)": {
+                    "accept": [
+                        "ViewportMessage"
+                    ]
+                }, 
+                "mcrt": {
+                    "accept": [
+                        "PartialFrame"
+                    ]
+                }
+            }, 
+            "numMachines": "$arrayNumber.mcrt", 
+            "sendLogMessages": false
+        }
+    }
+}

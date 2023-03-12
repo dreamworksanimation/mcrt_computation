@@ -1,0 +1,34 @@
+{
+    "computations": {
+        "(client)": {
+            "messages": {
+                "mcrt": "*"
+            }
+        }, 
+        "mcrt": {
+            "dso": "libmcrt.so", 
+            "entry": "yes", 
+            "fps": 1, 
+            "imageEncoding": 3, 
+            "requirements": {
+               "rez_packages": "moonray-10.0",
+                "resources": {
+                    "maxCores": "*",
+                    "minCores": 1.0,
+                    "memoryMB": 16384.0
+                }
+            },
+            "messages": {
+                "(client)": {
+                    "accept": [
+                        "RDLMessage", 
+                        "GenericMessage", 
+                        "ViewportMessage", 
+                        "JSONMessage"
+                    ]
+                }
+            }
+        }
+    }, 
+    "name": "a3rdl"
+}

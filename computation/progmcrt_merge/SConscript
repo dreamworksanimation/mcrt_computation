@@ -1,0 +1,30 @@
+Import('env')
+from os import path
+# ------------------------------------------
+name       = 'progmcrt_merge_computation'
+libname    = 'computation_progmcrt_merge'
+sources    = env.DWAGlob('*.cc')
+incdir     = [str(env.Dir('..').srcnode())]
+components = [  
+    'arras4_log',
+    'common_fb_util',
+    'common_grid_util',
+    'computation_api',
+    'grid_engine_tool',
+    'jsoncpp',
+    'common_mcrt_logging',
+    'engine_mcrt',
+    'engine_merger',
+    'mcrt_messages',
+    'message_api',
+    'render_util',
+    'tbb'
+]
+
+env.DWAUseComponents(components)
+lib = env.DWASharedLibrary(libname, sources, NO_VARIANT_NAME=True)
+target = env.DWAInstallDso(lib)
+env.DWAComponent(name, LIBS=[target], CPPPATH=incdir, COMPONENTS=components)
+
+# From breakpad.py, DWAGenerateBreakpadSymbols(path to library, name of library, installed library, env)
+env.DWAGenerateBreakpadSymbols(path.dirname(target[0].abspath), lib, target, env)

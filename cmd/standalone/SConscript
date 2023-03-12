@@ -1,0 +1,33 @@
+Import('env')
+# ------------------------------------------
+name       = 'standaloneClient'
+sources    = env.DWAGlob('*.cc')
+components =    [
+            'scene_rdl2',
+            'message_api',
+            'computation_api',
+            'standalone',
+            'mcrt_messages',
+            'jsoncpp'
+         ]
+# ------------------------------------------
+
+if "icc" in env['COMPILER_LABEL']:
+    env['CXXFLAGS'].append('-wd1782') # #pragma once is not deprecated.
+
+()
+env.DWAUseComponents(components)
+
+env.AppendUnique(LIBS = ['rt'])
+if "icc" in env['COMPILER_LABEL']:
+    # Force linking against OpenMP to pull link of static thread locals into process launch
+    env.AppendUnique(LIBS = ['iomp5'])
+else:
+    env.AppendUnique(LIBS = ['dl'])
+    
+binName = name 
+if env['COMPILER_LABEL'] != "icc150_64":
+    binName += "-%s" % env['COMPILER_LABEL']
+
+prog = env.DWAProgram(binName, sources)
+env.DWAInstallBin(prog)
