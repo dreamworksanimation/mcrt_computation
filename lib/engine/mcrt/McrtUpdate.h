@@ -9,6 +9,8 @@
 #include <message_api/messageapi_names.h>
 #include <message_api/Object.h>
 
+#include <functional>
+
 namespace mcrt_computation {
 
 class McrtUpdate
