@@ -37,6 +37,7 @@
 build
 build_env
 install
+/Testing
 html
 latex
 Doxyfile
