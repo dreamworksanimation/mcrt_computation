@@ -1,8 +1,5 @@
 // Copyright 2023 DreamWorks Animation LLC
 // SPDX-License-Identifier: Apache-2.0
-
-//
-//
 #include "RenderContextDriver.h"
 
 #include <arras4_log/LogEventStream.h>
@@ -18,6 +15,20 @@ namespace mcrt_computation {
 void 
 RenderContextDriver::startFrame()
 {
+    mFeedbackActiveRuntime = mFeedbackActiveUserInput; // setup render time feedback flag from user defined flag
+    if (mFeedbackActiveRuntime) {
+        //
+        // Start feedback operation
+        //
+        // Runtime feedback condition always switches at START-FRAME timing.
+        // This is required due to feedback internal data being delta-coded information and
+        // we can not activate feedback logic middle of rendering.
+        // 
+        mSentImageCache.reset(scene_rdl2::math::convertToClosedViewport(mViewport));
+    }
+
+    //------------------------------
+
     if (mStartFrameCallBack) mStartFrameCallBack(mReloadingScene, mSource);
 
     {
@@ -127,4 +138,3 @@ RenderContextDriver::reconstructSceneFromBackup()
 }
 
 } // namespace mcrt_computation
-

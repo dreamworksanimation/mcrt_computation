@@ -1,12 +1,10 @@
 // Copyright 2023 DreamWorks Animation LLC
 // SPDX-License-Identifier: Apache-2.0
-
-//
-//
 #include "RenderContextDriver.h"
 
 #include <arras4_log/Logger.h> // ARRAS_LOG_INFO
 #include <mcrt_dataio/share/util/BandwidthTracker.h>
+#include <mcrt_dataio/share/util/FpsTracker.h>
 #include <mcrt_dataio/share/util/SysUsage.h>
 #include <mcrt_messages/BaseFrame.h>
 #include <moonray/rendering/rndr/RenderContext.h>
@@ -65,8 +63,8 @@ RenderContextDriver::isEnoughSendInterval(const float fps,
 }
 
 void
-RenderContextDriver::sendDelta(mcrt_dataio::SysUsage &sysUsage,
-                               mcrt_dataio::BandwidthTracker &bandwidthTracker,
+RenderContextDriver::sendDelta(mcrt_dataio::SysUsage& sysUsage,
+                               mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
                                ProgressiveFrameSendCallBack callBackSend,
                                ProgressiveFrameSendCallBack callBackInfoOnly)
 //
@@ -145,7 +143,7 @@ RenderContextDriver::sendDelta(mcrt_dataio::SysUsage &sysUsage,
                     // Do snapshot and send to downstream by progressiveFrame message
                     if (sendProgressiveFrameMessage(!isMultiMachine(), // directoToClient
                                                     sysUsage,
-                                                    bandwidthTracker,
+                                                    sendBandwidthTracker,
                                                     infoDataArray,
                                                     callBackSend)) {
                         // sent FINISH condition last message.
@@ -166,7 +164,7 @@ RenderContextDriver::sendDelta(mcrt_dataio::SysUsage &sysUsage,
     if (!dataSendFlag && infoDataArray.size()) {
         // We have to send info only progressiveFrame message here
         sendProgressiveFrameMessageInfoOnly(sysUsage,
-                                            bandwidthTracker,
+                                            sendBandwidthTracker,
                                             infoDataArray,
                                             callBackInfoOnly);
     }
@@ -330,7 +328,7 @@ RenderContextDriver::preprocessQueuedMessage()
         }
     };
 
-    for (int i = static_cast<int>(mMcrtUpdates.size()) - 1; i >= 0 ; --i) {
+    for (int i = static_cast<int>(mMcrtUpdates.size()) - 1; i >= 0; --i) {
         preprocessMsgReverse(i);
     }
     return forceReload;
@@ -380,9 +378,9 @@ RenderContextDriver::isReadyToSend(const double now)
 
 bool
 RenderContextDriver::sendProgressiveFrameMessage(const bool directToClient,
-                                                 mcrt_dataio::SysUsage &sysUsage,
-                                                 mcrt_dataio::BandwidthTracker &bandwidthTracker,
-                                                 std::vector<std::string> &infoDataArray,
+                                                 mcrt_dataio::SysUsage& sysUsage,
+                                                 mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
+                                                 std::vector<std::string>& infoDataArray,
                                                  ProgressiveFrameSendCallBack callBackSend)
 //
 // This function is executed by arras thread
@@ -398,7 +396,7 @@ RenderContextDriver::sendProgressiveFrameMessage(const bool directToClient,
     scene_rdl2::rec_time::RecTime recTimeSnapshotToSend;
     recTimeSnapshotToSend.start(); // Measurement of elapsed time from snapshot to send.
 
-    piggyBackStatsInfo(sysUsage, bandwidthTracker, infoDataArray);
+    piggyBackStatsInfo(sysUsage, sendBandwidthTracker, infoDataArray);
 
     //------------------------------
     //
@@ -443,6 +441,7 @@ RenderContextDriver::sendProgressiveFrameMessage(const bool directToClient,
 
     frameMsg->mMachineId = mMachineIdOverride;
     frameMsg->mSnapshotId = mSnapshotId; // set snapshotId (this should same as latencyLog snapshotId)
+    frameMsg->mSendImageActionId = mSendImageActionId; // set sendImageActionId (never reset to 0)
     frameMsg->mSnapshotStartTime = mFbSender.getSnapshotStartTime();
     frameMsg->mCoarsePassStatus = (coarsePass)? 0: 1; // 0:coarsePass 1:FinePass
     if (status == mcrt::BaseFrame::STARTED) {
@@ -475,7 +474,8 @@ RenderContextDriver::sendProgressiveFrameMessage(const bool directToClient,
     frameMsg->mHeader.mStatus = status;
     frameMsg->mHeader.mProgress = getRenderProgress();
 
-    mSnapshotId++;          // increment snapshotId
+    mSnapshotId++; // increment snapshotId
+    mSendImageActionId++; // this id is never reset and first send data has 0
 
     //------------------------------
 
@@ -565,21 +565,24 @@ RenderContextDriver::sendProgressiveFrameMessage(const bool directToClient,
     //------------------------------
 
     callBackSend(frameMsg, mSource);
+    if (mFeedbackActiveRuntime) {
+        mSentImageCache.enqueueMessage(frameMsg);
+    }
 
     //------------------------------
 
     mOutputRatesFrameCount++; // update frame counter for output rates control
 
-    bandwidthTracker.set(dataSizeTotal);
+    sendBandwidthTracker.set(dataSizeTotal);
     mSnapshotToSendTimeLog->add(recTimeSnapshotToSend.end());
 
     return sentLastData;
 }
 
 void
-RenderContextDriver::sendProgressiveFrameMessageInfoOnly(mcrt_dataio::SysUsage &sysUsage,
-                                                         mcrt_dataio::BandwidthTracker &bandwidthTracker,
-                                                         std::vector<std::string> &infoDataArray,
+RenderContextDriver::sendProgressiveFrameMessageInfoOnly(mcrt_dataio::SysUsage& sysUsage,
+                                                         mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
+                                                         std::vector<std::string>& infoDataArray,
                                                          ProgressiveFrameSendCallBack callBackSend)
 //
 // This function is executed by arras thread
@@ -592,7 +595,7 @@ RenderContextDriver::sendProgressiveFrameMessageInfoOnly(mcrt_dataio::SysUsage &
         return;                 // early exit just in case
     }
 
-    piggyBackStatsInfo(sysUsage, bandwidthTracker, infoDataArray);
+    piggyBackStatsInfo(sysUsage, sendBandwidthTracker, infoDataArray);
 
     //------------------------------
 
@@ -628,7 +631,7 @@ RenderContextDriver::sendProgressiveFrameMessageInfoOnly(mcrt_dataio::SysUsage &
 
     //------------------------------
 
-    bandwidthTracker.set(dataSizeTotal);
+    sendBandwidthTracker.set(dataSizeTotal);
 }
 
 float
@@ -662,9 +665,9 @@ RenderContextDriver::checkOutputRatesInterval(const std::string &name)
 }
 
 void
-RenderContextDriver::piggyBackStatsInfo(mcrt_dataio::SysUsage &sysUsage,
-                                        mcrt_dataio::BandwidthTracker &bandwidthTracker,
-                                        std::vector<std::string> &infoDataArray)
+RenderContextDriver::piggyBackStatsInfo(mcrt_dataio::SysUsage& sysUsage,
+                                        const mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
+                                        std::vector<std::string>& infoDataArray)
 {
     if (sysUsage.isCpuUsageReady()) {
         //
@@ -689,13 +692,32 @@ RenderContextDriver::piggyBackStatsInfo(mcrt_dataio::SysUsage &sysUsage,
 
     {
         //
-        // update bandwidth tracker result and renderProgress info
+        // update sendBandwidth, feedback related info, and renderProgress info
         //
         std::lock_guard<std::mutex> lock(mMutexMcrtNodeInfoMapItem);
         mcrt_dataio::McrtNodeInfo &mcrtNodeInfo = mMcrtNodeInfoMapItem.getMcrtNodeInfo();
         
-        float bps = bandwidthTracker.getBps(); // Byte/Sec
-        mcrtNodeInfo.setSendBps(bps); // update outgoing bandwidth
+        float sendBps = sendBandwidthTracker.getBps(); // Byte/Sec
+        mcrtNodeInfo.setSendBps(sendBps); // update outgoing bandwidth
+
+        bool feedbackActive = mFeedbackActiveRuntime;
+        mcrtNodeInfo.setFeedbackActive(feedbackActive);
+        if (feedbackActive) {
+            // We only update feedback related info when feedback is active
+            float feedbackInterval = mFeedbackIntervalSec;
+            float recvFeedbackBps =
+                (mRecvFeedbackBandwidthTracker) ? mRecvFeedbackBandwidthTracker->getBps() : 0.0f; // Byte/Sec
+            float recvFeedbackFps =
+                (mRecvFeedbackFpsTracker) ? mRecvFeedbackFpsTracker->getFps() : 0.0f; // fps
+            float feedbackEvalLogSec = mFeedbackEvalLog.getAvg(); // millisec
+            float feedbackLatencySec = mFeedbackLatency.getAvg(); // millisec
+            mcrtNodeInfo.setFeedbackInterval(feedbackInterval); // sec
+            mcrtNodeInfo.setRecvFeedbackFps(recvFeedbackFps); // update incoming feedback fps
+            mcrtNodeInfo.setRecvFeedbackBps(recvFeedbackBps); // update incoming feedback bandwidth
+            mcrtNodeInfo.setEvalFeedbackTime(feedbackEvalLogSec);
+            mcrtNodeInfo.setFeedbackLatency(feedbackLatencySec);
+        }
+        
         mcrtNodeInfo.setProgress(getRenderProgress()); // progress fraction update
 
         //
@@ -813,4 +835,3 @@ RenderContextDriver::applyConfigOverrides()
 }
 
 } // namespace mcrt_computation
-

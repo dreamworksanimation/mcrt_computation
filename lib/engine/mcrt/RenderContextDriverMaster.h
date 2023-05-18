@@ -1,8 +1,5 @@
 // Copyright 2023 DreamWorks Animation LLC
 // SPDX-License-Identifier: Apache-2.0
-
-//
-//
 #pragma once
 
 #include "RenderContextDriver.h"
@@ -50,7 +47,9 @@ public:
                               int machineIdOverride,
                               McrtLogging *mcrtLogging = nullptr,
                               bool* mcrtDebugLogCreditUpdateMessage = nullptr,
-                              PackTilePrecisionMode precisionMode = PackTilePrecisionMode::AUTO16);
+                              PackTilePrecisionMode precisionMode = PackTilePrecisionMode::AUTO16,
+                              mcrt_dataio::FpsTracker* recvFeedbackFpsTracker = nullptr,
+                              mcrt_dataio::BandwidthTracker* recvFeedbackBandwidthTracker = nullptr);
     ~RenderContextDriverMaster(); // destroy all drivers
 
     // return newly created driver's driverId
@@ -77,10 +76,11 @@ private:
     McrtLogging *mMcrtLogging;
     bool* mMcrtDebugLogCreditUpdateMessage;
     PackTilePrecisionMode mPackTilePrecisionMode;
+    mcrt_dataio::FpsTracker* mRecvFeedbackFpsTracker;
+    mcrt_dataio::BandwidthTracker* mRecvFeedbackBandwidthTracker;
 
     int mLastDriverId;
     std::vector<RenderContextDriverUqPtr> mArray;
 };
 
 } // namespace mcrt_computation
-

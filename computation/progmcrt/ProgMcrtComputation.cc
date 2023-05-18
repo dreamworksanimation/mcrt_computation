@@ -1,13 +1,12 @@
 // Copyright 2023 DreamWorks Animation LLC
 // SPDX-License-Identifier: Apache-2.0
-
-
 #include "ProgMcrtComputation.h"
 
 #include <arras4_log/LogEventStream.h>
 #include <mcrt_computation/engine/mcrt/RenderContextDriver.h>
 #include <mcrt_dataio/engine/mcrt/McrtControl.h>
 #include <mcrt_messages/CreditUpdate.h>
+#include <mcrt_messages/ProgressiveFeedback.h>
 #include <mcrt_messages/RDLMessage_LeftEye.h>
 #include <mcrt_messages/RDLMessage_RightEye.h>
 #include <mcrt_messages/ViewportMessage.h>
@@ -65,19 +64,7 @@ namespace {
 
 ProgMcrtComputation::ProgMcrtComputation(arras4::api::ComputationEnvironment *env)
     : Computation(env)
-    , mRenderContextDriverMaster(nullptr)
     , mOptions()
-    , mPackTilePrecisionMode(PackTilePrecisionMode::AUTO16)
-    , mRenderPrepCancel(false)
-    , mFps(12.0f)
-    , mDispatchGatesFrame(false)
-    , mNumMachinesOverride(-1)
-    , mMachineIdOverride(-1)
-    , mRecLoad(nullptr)       // for debug and not used at this moment.
-    , mBandwidthTracker(2.0f) // default keep interval = 2 sec
-    , mInitialCredit(-1)
-    , mCredit(-1)
-    , mLogDebug_creditUpdateMessage(false)
 {
 #   ifdef USE_RAAS_DEBUG_FILENAME
     char * delayFilename = getenv("RAAS_DEBUG_FILENAME");
@@ -278,7 +265,9 @@ ProgMcrtComputation::onStart()
                                                                    mMachineIdOverride,
                                                                    &mLogging,
                                                                    &mLogDebug_creditUpdateMessage,
-                                                                   mPackTilePrecisionMode));
+                                                                   mPackTilePrecisionMode,
+                                                                   &mRecvFeedbackFpsTracker,
+                                                                   &mRecvFeedbackBandwidthTracker));
     mRenderContextDriverMaster->
         addDriver(&mOptions,
                   &mRenderPrepCancel,
@@ -326,7 +315,7 @@ ProgMcrtComputation::onIdle()
 
     if (mCredit != 0) {
         driver->sendDelta(mSysUsage,
-                          mBandwidthTracker,
+                          mSendBandwidthTracker,
                           // One of the following callback functions is used depending on the internal
                           // condition.
                           [&](mcrt::ProgressiveFrame::Ptr msg, const std::string &source) {
@@ -450,6 +439,9 @@ ProgMcrtComputation::onMessage(const arras4::api::Message &aMsg)
 
     } else if (aMsg.classId() == mcrt::JSONMessage::ID) {
         onJSONMessage(aMsg);
+
+    } else if (aMsg.classId() == mcrt::ProgressiveFeedback::ID) {
+        driver->evalProgressiveFeedbackMessage(aMsg);
 
     //------------------------------
 
@@ -589,4 +581,3 @@ ProgMcrtComputation::onCreditUpdate(const arras4::api::Message &msg)
 }
 
 } // namespace mcrt_computation
-

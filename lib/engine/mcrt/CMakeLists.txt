@@ -11,14 +11,17 @@ add_library(${PROJECT_NAME}::${component} ALIAS ${component})
 
 target_sources(${component}
     PRIVATE
+	DeltaImageCache.cc
+	McrtDebugFeedback.cc
         McrtUpdate.cc
         MessageHistory.cc
+        RenderContextDriver.cc
         RenderContextDriver_debugCommand.cc
         RenderContextDriver_enqMessage.cc
         RenderContextDriver_evalMessage.cc
+	RenderContextDriver_feedback.cc
         RenderContextDriver_onIdle.cc
         RenderContextDriver_startStop.cc
-        RenderContextDriver.cc
         RenderContextDriverMaster.cc
         TimingRecorder.cc
 )
@@ -40,12 +43,14 @@ target_include_directories(${component}
 target_link_libraries(${component}
     PUBLIC
         McrtDataio::engine_mcrt
+        McrtDataio::engine_merger
         McrtDataio::share_util
         McrtMessages::mcrt_messages
         Moonray::rendering_rndr
         Moonray::rendering_shading
         SceneRdl2::common_grid_util
         SceneRdl2::common_rec_time
+	SceneRdl2::render_cache
         SceneRdl2::render_logging
         SceneRdl2::render_util
 )

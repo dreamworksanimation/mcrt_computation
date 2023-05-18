@@ -1,15 +1,11 @@
 // Copyright 2023 DreamWorks Animation LLC
 // SPDX-License-Identifier: Apache-2.0
-
-//
-//
 #include "RenderContextDriver.h"
 
 #include <arras4_log/Logger.h> // ARRAS_LOG_INFO
 #include <mcrt_computation/common/mcrt_logging/McrtLogging.h>
 #include <mcrt_messages/RDLMessage.h>
 #include <mcrt_messages/ViewportMessage.h>
-#include <moonray/rendering/rndr/RenderContext.h>
 
 //#define DEBUG_MSG_ENQ
 //#define DEBUG_MSG_PROCESS
@@ -283,7 +279,7 @@ RenderContextDriver::enqViewportMessage(const arras4::api::Message &msg,
                                       },
                                       recvTimingSec));
 }
-    
+
 //------------------------------------------------------------------------------------------
 
 void
@@ -562,4 +558,3 @@ RenderContextDriver::updateLoggingMode()
 }
 
 } // namespace mcrt_computation
-

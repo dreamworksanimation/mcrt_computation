@@ -1,8 +1,5 @@
 // Copyright 2023 DreamWorks Animation LLC
 // SPDX-License-Identifier: Apache-2.0
-
-//
-//
 #include "RenderContextDriverMaster.h"
 #include "RenderContextDriver.h"
 
@@ -15,14 +12,18 @@ namespace mcrt_computation {
 
 RenderContextDriverMaster::RenderContextDriverMaster(int numMachineOverride,
                                                      int machineIdOverride,
-                                                     McrtLogging *mcrtLogging,
+                                                     McrtLogging* mcrtLogging,
                                                      bool* mcrtDebugLogCreditUpdateMessage,
-                                                     PackTilePrecisionMode packTilePrecisionMode)
+                                                     PackTilePrecisionMode packTilePrecisionMode,
+                                                     mcrt_dataio::FpsTracker* recvFeedbackFpsTracker,
+                                                     mcrt_dataio::BandwidthTracker* recvFeedbackBandwidthTracker)
     : mNumMachineOverride(numMachineOverride)
     , mMachineIdOverride(machineIdOverride)
     , mMcrtLogging(mcrtLogging)
     , mMcrtDebugLogCreditUpdateMessage(mcrtDebugLogCreditUpdateMessage)
     , mPackTilePrecisionMode(packTilePrecisionMode)
+    , mRecvFeedbackFpsTracker(recvFeedbackFpsTracker)
+    , mRecvFeedbackBandwidthTracker(recvFeedbackBandwidthTracker)
     , mLastDriverId(-1)
 {
     if (numMachineOverride > 1) {
@@ -57,6 +58,19 @@ RenderContextDriverMaster::addDriver(const moonray::rndr::RenderOptions *renderO
                                      const StartFrameCallBack &startFrameCallBack,
                                      const StopFrameCallBack &stopFrameCallBack)
 {
+    RenderContextDriverOptions options(postMainCallBack, startFrameCallBack, stopFrameCallBack);
+    options.driverId = ++mLastDriverId;
+    options.renderOptions = renderOptionsPtr;
+    options.numMachineOverride = mNumMachineOverride;
+    options.machineIdOverride = mMachineIdOverride;
+    options.mcrtLogging = mMcrtLogging;
+    options.mcrtDebugLogCreditUpdateMessage = mMcrtDebugLogCreditUpdateMessage;
+    options.precisionMode = mPackTilePrecisionMode;
+    options.renderPrepCancel = renderPrepCancel;
+    options.recvFeedbackFpsTracker = mRecvFeedbackFpsTracker;
+    options.recvFeedbackBandwidthTracker = mRecvFeedbackBandwidthTracker;
+
+    /*
     RenderContextDriverUqPtr ptr(new RenderContextDriver(++mLastDriverId,
                                                          renderOptionsPtr,
                                                          mNumMachineOverride,
@@ -67,7 +81,11 @@ RenderContextDriverMaster::addDriver(const moonray::rndr::RenderOptions *renderO
                                                          renderPrepCancel,
                                                          postMainCallBack,
                                                          startFrameCallBack,
-                                                         stopFrameCallBack));
+                                                         stopFrameCallBack,
+                                                         mRecvFeedbackFpsTracker,
+                                                         mRecvFeedbackBandwidthTracker));
+    */
+    RenderContextDriverUqPtr ptr(new RenderContextDriver(options));
     mArray.push_back(std::move(ptr));
     return mArray.back()->getDriverId();
 }
@@ -129,4 +147,3 @@ RenderContextDriverMaster::findArrayId(const int driverId)
 }
 
 } // namespace mcrt_computation
-

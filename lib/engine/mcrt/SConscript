@@ -9,12 +9,14 @@ components = [
     'common_grid_util',
     'common_rec_time',
     'engine_mcrt',
+    'engine_merger',
     'share_util',
     'mcrt_messages',
     'message_api',
     'rendering_rndr',
     'rendering_shading',
     'render_logging',
+    'render_cache',
     'render_util'
 ]
 

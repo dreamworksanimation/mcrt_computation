@@ -16,6 +16,9 @@ target_link_libraries(${component}
         ${PROJECT_NAME}::common_mcrt_logging
         ${PROJECT_NAME}::common_rec_load
         ${PROJECT_NAME}::computation_engine_mcrt
+        ArrasCore::arras4_log
+        ArrasCore::computation_api
+	McrtDataio::engine_mcrt
         McrtMessages::mcrt_messages
         Moonray::common_geometry
         Moonray::grid_engine_tool
@@ -24,8 +27,6 @@ target_link_libraries(${component}
         SceneRdl2::common_fb_util
         SceneRdl2::common_grid_util
         SceneRdl2::render_util
-        ArrasCore::arras4_log
-        ArrasCore::computation_api
 )
 
 set(MOONRAY_EXEC_MODE_DEFAULT "AUTO" CACHE STRING "MoonRay's default execution mode")

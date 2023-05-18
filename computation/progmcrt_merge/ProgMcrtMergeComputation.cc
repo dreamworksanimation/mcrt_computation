@@ -1,7 +1,5 @@
 // Copyright 2023 DreamWorks Animation LLC
 // SPDX-License-Identifier: Apache-2.0
-
-
 #include "ProgMcrtMergeComputation.h"
 #include "ProgMcrtMergeClockDeltaDriver.h"
 
@@ -13,14 +11,18 @@
 #include <mcrt_dataio/engine/mcrt/McrtControl.h>
 #include <mcrt_dataio/engine/merger/FbMsgSingleFrame.h>
 #include <mcrt_messages/CreditUpdate.h>
+#include <mcrt_messages/ProgressiveFeedback.h>
 #include <mcrt_messages/ProgressiveFrame.h>
 #include <mcrt_messages/RenderMessages.h>
 #include <mcrt_messages/ViewportMessage.h>
 
 #include <scene_rdl2/common/grid_util/LatencyLog.h>
 #include <scene_rdl2/common/platform/Platform.h>
+#include <scene_rdl2/render/cache/CacheDequeue.h>
+#include <scene_rdl2/render/cache/CacheEnqueue.h>
 #include <scene_rdl2/render/util/StrUtil.h>
 
+#include <cmath> // round()
 #include <cstdlib>
 #include <stdint.h>
 #include <string>
@@ -39,37 +41,10 @@ namespace mcrt_computation {
 
 COMPUTATION_CREATOR(ProgMcrtMergeComputation);
 
-ProgMcrtMergeComputation::ProgMcrtMergeComputation(arras4::api::ComputationEnvironment *env) :
-    Computation(env),
-    mNumMachines(0),
-    mRoiViewportStatus(false),
-    mPackTilePrecisionMode(PackTilePrecisionMode::AUTO16),
-    mHasProgressiveFrame(false),
-    mFirstFrame(true),
-    mLastTime(0.0),
-    mFpsSet(false),
-    mFps(12.0f),
-    mStopMcrtControl(true),
-    mLastPacketSentTime(0.0),
-    mLastInfoPacketSentTime(0.0),
-    mLastCompleteSyncId(UINT32_MAX),
-    mLastMergeSyncId(UINT32_MAX),
-    mCurrActiveRecvSyncId(UINT32_MAX),
-    mLastPickDataMessageSyncId(-1),
-    mMsgSendHandler(std::make_shared<mcrt_dataio::MsgSendHandler>()),
-    mGlobalNodeInfo(false, mMsgSendHandler), // decodeOnly = false
-    mRecvBandwidthTracker(2.0f),             // keepInterval 2 sec
-    mSendBandwidthTracker(2.0f),             // keepInterval 2 sec
-    m1stSendBandwidthTracker(2.0f),          // keepInterval 2 sec
-    mSendDup(1),
-    mPartialMergeRefreshInterval(0.25f), // sec
-    mPartialMergeTilesTotal(2048), // this value is not used because mPartialmergeRefreshInterval > 0.0
-    mPrevRecvMsg(""),
-    mTaskScheduler(nullptr),
-    mInitialCredit(-1),
-    mCredit(-1),
-    mSendCredit(false),
-    mParallelInitialFrameUpdateMode(true)
+ProgMcrtMergeComputation::ProgMcrtMergeComputation(arras4::api::ComputationEnvironment *env)
+    : Computation(env)
+    , mMsgSendHandler(std::make_shared<mcrt_dataio::MsgSendHandler>())
+    , mGlobalNodeInfo(false, mMsgSendHandler) // decodeOnly = false
 {
 #   ifdef USE_RAAS_DEBUG_FILENAME
     char * delayFilename = getenv("RAAS_DEBUG_FILENAME");
@@ -190,7 +165,7 @@ ProgMcrtMergeComputation::onStart()
         mGlobalNodeInfo.setMergeCpuTotal(mcrt_dataio::SysUsage::cpuTotal());
         mGlobalNodeInfo.setMergeMemTotal(mcrt_dataio::SysUsage::memTotal());
     }
-    mFbMsgMultiFrames.reset(new mcrt_dataio::FbMsgMultiFrames(&mGlobalNodeInfo));
+    mFbMsgMultiFrames.reset(new mcrt_dataio::FbMsgMultiFrames(&mGlobalNodeInfo, &mFeedbackActive));
 
     int totalCacheFrames = 2;
     if (!mFbMsgMultiFrames->initTotalCacheFrames(totalCacheFrames) ||
@@ -206,6 +181,15 @@ ProgMcrtMergeComputation::onStart()
 #       endif // end DEVELOP_VER_MESSAGE
         mTaskScheduler = new tbb::task_scheduler_init(mNumThreads);
     }
+
+    //------------------------------
+
+    // mDebugFeedback is a runtime verify functionality for the feedback logic.
+    // And there is a runtime activation debugConsole command.
+    // It is no impact on the performance as long as the runtime debug sets to off even if mDebugFeedback
+    // is allocated.
+    mDebugFeedback = std::make_unique<ProgMcrtMergeDebugFeedback>(5, // keep max frame count
+                                                                  mNumMachines);
 
     //------------------------------
 
@@ -371,7 +355,7 @@ ProgMcrtMergeComputation::onMessage(const arras4::api::Message &aMsg)
             }
         }
 
-        if (!mFbMsgMultiFrames->push(*progressive)) {
+        if (!mFbMsgMultiFrames->push(*progressive, mFeedbackInitCallBack)) {
 #           ifdef DEVELOP_VER_MESSAGE
             std::cerr << ">>> ProgMcrtMergeComputation.cc mFbMsgMultiFrames.push() failed" << std::endl;
 #           endif // end DEVELOP_VER_MESSAGE
@@ -447,6 +431,17 @@ ProgMcrtMergeComputation::onViewportChanged(const mcrt::BaseFrame &msg)
     mFbMsgMultiFrames->initFb(mRezedViewport); // update fb data
     mFb.init(mRezedViewport); // for combine all MCRT result into one image
     mFbSender.init(mRezedViewport);
+
+    //
+    // This mFeedbackActive condition is not propergated into FbMsgSingleFrame object yet. However, seting
+    // mFeedbackActive into FbMsgSingleFrame object would happen just after finishing this function.
+    // So we can use mFeedbackActive safely here.
+    // Also, mFeedbackActive is only updated by debug command and we don¡Çt need to MTlock logic to access
+    // mFeedbackActive here.
+    //        
+    if (mFeedbackActive && mFeedbackIntervalSec > 0.0f) {
+        initFeedbackFbSender();
+    }        
 
     mLastTime = scene_rdl2::util::getSeconds();
 }
@@ -539,6 +534,21 @@ ProgMcrtMergeComputation::piggyBackInfo(std::vector<std::string> &infoDataArray)
 
     mGlobalNodeInfo.setMergeProgress(mFbSender.getProgressFraction());
 
+    {
+        bool feedbackActive = false;
+        mcrt_dataio::FbMsgSingleFrame* currFbMsgSingleFrame = mFbMsgMultiFrames->getDisplayFbMsgSingleFrame();
+        if (currFbMsgSingleFrame) {
+            feedbackActive = currFbMsgSingleFrame->getFeedbackActive();
+        }
+        mGlobalNodeInfo.setMergeFeedbackActive(feedbackActive);
+        if (feedbackActive) {
+            mGlobalNodeInfo.setMergeFeedbackInterval(mFeedbackIntervalSec);
+            mGlobalNodeInfo.setMergeEvalFeedbackTime(mFeedbackEvalLog.getAvg());
+            mGlobalNodeInfo.setMergeSendFeedbackFps(mSendFeedbackFpsTracker.getFps());
+            mGlobalNodeInfo.setMergeSendFeedbackBps(mSendFeedbackBandwidthTracker.getBps());
+        }
+    }
+
     std::string infoData;
     if (mGlobalNodeInfo.encode(infoData)) {
         infoDataArray.push_back(std::move(infoData));
@@ -548,8 +558,7 @@ ProgMcrtMergeComputation::piggyBackInfo(std::vector<std::string> &infoDataArray)
 bool
 ProgMcrtMergeComputation::decodeMergeSendProgressiveFrame(std::vector<std::string> &infoDataArray)
 {
-    mcrt_dataio::FbMsgSingleFrame *currFbMsgSingleFrame =
-        mFbMsgMultiFrames->getDisplayFbMsgSingleFrame();
+    mcrt_dataio::FbMsgSingleFrame* currFbMsgSingleFrame = mFbMsgMultiFrames->getDisplayFbMsgSingleFrame();
 
     //------------------------------
     //
@@ -578,7 +587,7 @@ ProgMcrtMergeComputation::decodeMergeSendProgressiveFrame(std::vector<std::strin
 
     mStats.updateMsgInterval();
 
-    mFbSender.setHeaderInfoAndFbReset(currFbMsgSingleFrame); // We should call resetLastHistory()
+    mFbSender.setHeaderInfoAndFbReset(currFbMsgSingleFrame, nullptr); // We should call resetLastHistory()
 
     //------------------------------
     //
@@ -592,7 +601,8 @@ ProgMcrtMergeComputation::decodeMergeSendProgressiveFrame(std::vector<std::strin
             if (mergeFraction == 1.0f) {
                 mPartialMergeTilesTotal = 0; // special case for all (= non_partial_merge).
             } else {
-                mPartialMergeTilesTotal = (int)((float)mFb.getTileTotal() * mergeFraction + 0.5f);
+                mPartialMergeTilesTotal =
+                    static_cast<int>(std::round(static_cast<float>(mFb.getTotalTiles()) * mergeFraction));
             }
         }
 
@@ -611,7 +621,7 @@ ProgMcrtMergeComputation::decodeMergeSendProgressiveFrame(std::vector<std::strin
 
     //------------------------------
     //
-    // snapshotDelta and send
+    // snapshotDelta and send to client
     //
     // Do snapshot for progressiveFrame message
     if (!mFb.snapshotDelta(mFbSender.getFb(), mFbSender.getFbActivePixels(),
@@ -629,6 +639,15 @@ ProgMcrtMergeComputation::decodeMergeSendProgressiveFrame(std::vector<std::strin
     mLastPacketSentTime = scene_rdl2::util::getSeconds();
     if (infoDataArray.size()) {
         mLastInfoPacketSentTime = mLastPacketSentTime;
+    }
+
+    //------------------------------
+    //
+    // feedback to mcrt
+    //
+    if (currFbMsgSingleFrame->getFeedbackActive() &&
+        mFeedbackIntervalSec > 0.0 && mSendFeedbackTime.end() >= mFeedbackIntervalSec) {
+        processFeedback();
     }
 
     return true;
@@ -703,7 +722,7 @@ ProgMcrtMergeComputation::sendProgressiveFrame(std::vector<std::string> &infoDat
 
     ARRAS_LOG_DEBUG("Sending ProgressiveFrame");
     for (int i = 0; i < mSendDup; ++i) {
-        sendBpsUpdate(frameMsg);
+        sendBpsUpdate(frameMsg->serializedLength());
         send(frameMsg, arras4::api::withSource(mSource));
         if (mCredit > 0) mCredit--;
     }
@@ -756,7 +775,7 @@ ProgMcrtMergeComputation::sendInfoOnlyProgressiveFrame(std::vector<std::string> 
     //------------------------------
 
     ARRAS_LOG_DEBUG("Sending ProgressiveFrame msg-only");
-    sendBpsUpdate(frameMsg);
+    sendBpsUpdate(frameMsg->serializedLength());
     send(frameMsg, arras4::api::withSource(mSource));
     if (mCredit > 0) mCredit--;
 
@@ -766,6 +785,152 @@ ProgMcrtMergeComputation::sendInfoOnlyProgressiveFrame(std::vector<std::string> 
     std::cerr << ">> ProgMcrtMergeComputation.cc send progressiveFrame msg-only"
               << " msg:'" << msg << "'" << std::endl;
 #   endif // end DEBUG_MESSAGE_SEND_PROGRESSIVE
+}
+
+void
+ProgMcrtMergeComputation::processFeedback()
+{
+    scene_rdl2::rec_time::RecTime recTimeEvalFeedback;    
+    recTimeEvalFeedback.start();
+
+    uint32_t currSyncId = mFbMsgMultiFrames->getDisplaySyncFrameId();
+
+    //------------------------------
+    //
+    // setup feedbackFbSender
+    //
+    mcrt_dataio::FbMsgSingleFrame* currFbMsgSingleFrame = mFbMsgMultiFrames->getDisplayFbMsgSingleFrame();
+
+    mcrt::BaseFrame::Status feedbackStatus = mcrt::BaseFrame::Status::RENDERING;
+    mcrt::BaseFrame::Status* overwriteStatus = nullptr;
+    if (mFeedbackInitialized || mLastSentFeedbackSyncId != currSyncId) {
+        feedbackStatus = mcrt::BaseFrame::Status::STARTED;
+        overwriteStatus = &feedbackStatus;
+        mFeedbackInitialized = false;
+    }
+    mFeedbackFbSender.setHeaderInfoAndFbReset(currFbMsgSingleFrame, overwriteStatus);
+
+    //------------------------------
+    //
+    // snapshotDelta
+    //
+    if (!mFb.snapshotDelta(mFeedbackFbSender.getFb(),
+                           mFeedbackFbSender.getFbActivePixels(),
+                           mFeedbackFbSender.getCoarsePassStatus())) {
+        // mFeedbackFbSender and mFb has different resolution -> error
+        std::cerr << ">> ProgMcrtMergeComputation.cc processFeedback() snapshotDelta() failed\n";
+        return;           // error early exit
+    }
+
+    //------------------------------
+    //
+    // progressiveFeedback construction
+    //
+    mcrt::ProgressiveFrame::Ptr frameMsg(new mcrt::ProgressiveFrame);
+
+    {
+        // This is a special machine-id that indicates merge computation node.
+        constexpr int MERGE_COMPUTATION_ID = -2;
+        frameMsg->mMachineId = MERGE_COMPUTATION_ID;
+    }
+
+    frameMsg->mSendImageActionId = ~static_cast<unsigned>(0); // set dummy data for feedback message
+    frameMsg->mHeader.mRezedViewport.setViewport(mRezedViewport.mMinX, mRezedViewport.mMinY,
+                                                 mRezedViewport.mMaxX, mRezedViewport.mMaxY);
+    frameMsg->mHeader.mFrameId = currSyncId;
+    frameMsg->mHeader.mStatus = mFeedbackFbSender.getFrameStatus();
+    frameMsg->mHeader.mProgress = mFeedbackFbSender.getProgressFraction();
+    if (mRoiViewportStatus) {
+        frameMsg->mHeader.setViewport(mRoiViewport.mMinX, mRoiViewport.mMinY,
+                                      mRoiViewport.mMaxX, mRoiViewport.mMaxY);
+    } else {
+        frameMsg->mHeader.mViewport.reset();
+    }
+    frameMsg->mSnapshotStartTime = mFeedbackFbSender.getSnapshotStartTime();
+
+    {
+        constexpr int STATUS_COARSE_PASS = 0;
+        constexpr int STATUS_FINE_PASS = 1;
+        frameMsg->mCoarsePassStatus =
+            (mFeedbackFbSender.getCoarsePassStatus()) ?
+            STATUS_COARSE_PASS :
+            STATUS_FINE_PASS;
+    }
+
+    // Under regular progressiveFrame data send to the client situation, we update denoise related
+    // information here, but we technically don¡Çt need these information under feedback logic.
+    // So we just skip them.
+
+    // We have to update mLastSentFeedbackSyncId for next feedback message
+    mLastSentFeedbackSyncId = frameMsg->mHeader.mFrameId;
+
+    //------------------------------
+
+    // We use the same precision control of regular progressiveFrame message to the downstream.
+    mFeedbackFbSender.setPrecisionControl(mPackTilePrecisionMode);
+
+    mFeedbackFbSender.addBeautyBuffWithNumSample(frameMsg); // with numSample
+
+    /* Commented out at this moment due to we are only considering Beauty buffer for testing.
+       We need RenderBufferOdd info for supporting multi-machine adaptive sampling.
+    if (mFb.getRenderBufferOddStatus()) {
+        mFbSender.addRenderBufferOdd(frameMsg);
+    }
+    */
+
+    //------------------------------
+    //
+    // progressiveFeedback
+    //
+    mcrt::ProgressiveFeedback::Ptr feedbackMsg(new mcrt::ProgressiveFeedback);
+    {
+        //
+        // sendImageActionId data encoding
+        //
+        scene_rdl2::cache::CacheEnqueue cacheEnqueue(&feedbackMsg->mMergeActionTrackerData);
+        currFbMsgSingleFrame->encodeMergeActionTracker(cacheEnqueue);
+
+        if (mDebugFeedback && mDebugFeedback->isActive()) {
+            ProgMcrtMergeDebugFeedbackFrame& currDebugFrame = mDebugFeedback->getCurrFrame();
+
+            currDebugFrame.set(mFeedbackId, mFeedbackFbSender.getFb());
+            for (unsigned machineId = 0; machineId < currFbMsgSingleFrame->getActiveMachines(); ++machineId) {
+                ProgMcrtMergeDebugFeedbackMachine& currMachine = currDebugFrame.getMachine(machineId);
+
+                mcrt_dataio::MergeActionTracker& currMergeActionTracker = currFbMsgSingleFrame->getMergeActionTracker(machineId);
+                currMachine.set(currMergeActionTracker.getLastSendActionId(),
+                                currMergeActionTracker.getLastPartialMergeTileId(),
+                                currFbMsgSingleFrame->getFb(machineId));
+            }
+
+            mDebugFeedback->incrementId();
+        }
+    }
+
+    feedbackMsg->mFeedbackId = mFeedbackId;
+    feedbackMsg->mProgressiveFrame = frameMsg;
+    send(feedbackMsg, arras4::api::withSource(mSource));
+    
+    mSendFeedbackTime.start(); // update last send feedback time
+
+    sendBpsUpdate(feedbackMsg->serializedLength());
+
+    // ===== This is a best for minimum debug message for feedbackMessage send =====
+    // std::cerr << ">> ProgMcrtMergeComputation.cc sent feedback feedbackId:" << mFeedbackId << "\n";
+
+    mFeedbackId++;
+
+    //------------------------------
+
+    mFeedbackEvalLog.set(recTimeEvalFeedback.end() * 1000.0f); // millisec
+
+    // fps tracker update : We want to keep 2x longer record of current feedbackInterval
+    mSendFeedbackFpsTracker.setKeepIntervalSec(mFeedbackIntervalSec * 2.0f);
+    mSendFeedbackFpsTracker.set();
+
+    // bandwidth tracker update : We want to keep 2x longer record of current feedbackInterval
+    mSendFeedbackBandwidthTracker.setKeepIntervalSec(mFeedbackIntervalSec * 2.0f);
+    mSendFeedbackBandwidthTracker.set(feedbackMsg->serializedLength());
 }
 
 void
@@ -779,13 +944,9 @@ ProgMcrtMergeComputation::recvBpsUpdate(mcrt::ProgressiveFrame::ConstPtr frameMs
 }
 
 void
-ProgMcrtMergeComputation::sendBpsUpdate(mcrt::ProgressiveFrame::Ptr frameMsg)
+ProgMcrtMergeComputation::sendBpsUpdate(size_t messageSerializedByte)
 {
-    size_t dataSizeTotal = 0;
-    for (const mcrt::BaseFrame::DataBuffer &buffer: frameMsg->mBuffers) {
-        dataSizeTotal += buffer.mDataLength;
-    }
-    mSendBandwidthTracker.set(dataSizeTotal); // byte    
+    mSendBandwidthTracker.set(messageSerializedByte);
 }
 
 uint64_t    
@@ -871,6 +1032,30 @@ ProgMcrtMergeComputation::parserConfigureDebugCommand()
                    else                   mStopMcrtControl = (arg++).as<bool>(0);
                    return arg.msg(std::string("stopMcrtControl:") + str_util::boolStr(mStopMcrtControl));
                });
+    parser.opt("feedback", "<on|off|show>",
+               "enable/disable feedback logic. This condition will apply next render start timing",
+               [&](Arg& arg) -> bool {
+                   if (arg() != "show") setFeedbackActive((arg++).as<bool>(0));
+                   else arg++;
+                   return arg.msg(scene_rdl2::str_util::boolStr(mFeedbackActive) + '\n');
+               });
+    parser.opt("feedbackInterval", "<intervalSec|show>", "feedback interval by sec",
+               [&](Arg& arg) -> bool {
+                   if (arg() != "show") setFeedbackIntervalSec((arg++).as<float>(0));
+                   else arg++;
+                   return arg.msg(std::to_string(mFeedbackIntervalSec) + " sec\n");
+               });
+    parser.opt("feedbackDebug", "...command...", "command for debugFeedback logic",
+               [&](Arg& arg) -> bool {
+                   if (!mDebugFeedback) return arg.msg("debugFeedback logic is disabled\n");
+                   return mDebugFeedback->getParser().main(arg.childArg());
+               });
+    parser.opt("feedbackStats", "", "show feedback statistical info",
+               [&](Arg& arg) -> bool { return arg.msg(showFeedbackStats() + '\n'); });
+    parser.opt("currSingleFrame", "...command...", "command for current single frame",
+               [&](Arg& arg) -> bool {
+                   return mFbMsgMultiFrames->getDisplayFbMsgSingleFrame()->getParser().main(arg.childArg());
+               });
 }
 
 void
@@ -878,7 +1063,7 @@ ProgMcrtMergeComputation::parserConfigureDebugCommandSnapshotDeltaRec()
 {
     Parser& parser = mParserDebugCommandSnapshotDeltaRec;
     
-    parser.description("snapshotDeltaRec command ");
+    parser.description("snapshotDeltaRec command");
     parser.opt("start", "", "start snapshot delta rec",
                [&](Arg& arg) -> bool {
                    mFb.snapshotDeltaRecStart();
@@ -1031,5 +1216,84 @@ ProgMcrtMergeComputation::showMsg(const std::string& msg, bool cerrOut)
     }
 }
 
-} // namespace mcrt_computation
+void
+ProgMcrtMergeComputation::initFeedbackFbSender()
+{
+    std::cerr << ">>>>---- ProgMcrtMergeComputation.cc initFeedbackFbSender() ----<<<<\n";
 
+    mFeedbackInitialized = true;
+    mFeedbackFbSender.init(mRezedViewport);
+
+    mSendFeedbackTime.start();
+}
+
+void
+ProgMcrtMergeComputation::setFeedbackActive(bool flag)
+{
+    mFeedbackActive = flag;
+}
+
+void
+ProgMcrtMergeComputation::setFeedbackIntervalSec(float sec)
+{
+    mFeedbackIntervalSec = sec;
+}
+
+std::string
+ProgMcrtMergeComputation::showFeedbackStats() const
+{
+    using scene_rdl2::str_util::addIndent;
+    using scene_rdl2::str_util::boolStr;
+    using scene_rdl2::str_util::byteStr;
+
+    auto showFeedbackCondition = [&]() -> std::string {
+        mcrt_dataio::FbMsgSingleFrame* currFbMsgSingleFrame = mFbMsgMultiFrames->getDisplayFbMsgSingleFrame();
+        if (!currFbMsgSingleFrame) return "runtimeFeedback:? currFbmsgSingleFrame is empty";
+        std::ostringstream ostr;
+        ostr
+        << "runtimeFeedbackActive:" << boolStr(currFbMsgSingleFrame->getFeedbackActive())
+        << " current runtime feedback condition";
+        return ostr.str();
+    };
+    auto showFeedbackEvalLog = [&]() -> std::string {
+        std::ostringstream ostr;
+        ostr
+        << "feedbackEvalLog {\n"
+        << addIndent(mFeedbackEvalLog.show()) << '\n'
+        << "  average:" << mFeedbackEvalLog.getAvg() << " millisec\n"
+        << "}";
+        return ostr.str();
+    };
+    auto showSendFeedbackFpsTracker = [&]() -> std::string {
+        std::ostringstream ostr;
+        ostr
+        << "sendFeedbackFpsTracker {\n"
+        << addIndent(mSendFeedbackFpsTracker.show()) << '\n'
+        << "  fps:" << mSendFeedbackFpsTracker.getFps() << '\n'
+        << "}";
+        return ostr.str();
+    };
+    auto showSendFeedbackBandwidthTracker = [&]() -> std::string {
+        std::ostringstream ostr;
+        ostr
+        << "sendFeedbackBandwidthTracker {\n"
+        << addIndent(mSendFeedbackBandwidthTracker.show()) << '\n'
+        << "  bps:" << byteStr(static_cast<size_t>(mSendFeedbackBandwidthTracker.getBps())) << "/sec\n"
+        << "}";
+        return ostr.str();
+    };
+
+    std::ostringstream ostr;
+    ostr << "feedback stats {\n"
+         << "  mFeedbackActive:" << boolStr(mFeedbackActive) << " (feedback action on/off switch user input)\n"
+         << addIndent(showFeedbackCondition()) << '\n'
+         << "  mFeedbackIntervalSec:" << mFeedbackIntervalSec << " sec\n"
+         << "  mFeedbackId:" << mFeedbackId << '\n'
+         << addIndent(showFeedbackEvalLog()) << '\n'
+         << addIndent(showSendFeedbackFpsTracker()) << '\n'
+         << addIndent(showSendFeedbackBandwidthTracker()) << '\n'
+         << "}";
+    return ostr.str();
+}
+
+} // namespace mcrt_computation

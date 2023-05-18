@@ -17,6 +17,7 @@ components = [
     'engine_merger',
     'mcrt_messages',
     'message_api',
+    'render_cache',
     'render_util',
     'tbb'
 ]

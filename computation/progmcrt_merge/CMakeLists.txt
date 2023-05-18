@@ -8,8 +8,9 @@ add_library(${PROJECT_NAME}::${component} ALIAS ${component})
 
 target_sources(${component}
     PRIVATE
-        ProgMcrtMergeComputation.cc 
         ProgMcrtMergeClockDeltaDriver.cc
+        ProgMcrtMergeComputation.cc 
+        ProgMcrtMergeDebugFeedback.cc
 )
 
 target_link_libraries(${component}

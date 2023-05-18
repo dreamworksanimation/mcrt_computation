@@ -1,8 +1,5 @@
 // Copyright 2023 DreamWorks Animation LLC
 // SPDX-License-Identifier: Apache-2.0
-
-//
-//
 #include "ProgMcrtMergeClockDeltaDriver.h"
 
 #include <tbb/task_group.h>
@@ -155,4 +152,3 @@ ProgMcrtMergeClockDeltaDriver::get()
 }
 
 } // namespace mcrt_computation
-

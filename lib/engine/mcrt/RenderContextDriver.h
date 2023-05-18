@@ -1,17 +1,20 @@
 // Copyright 2023 DreamWorks Animation LLC
 // SPDX-License-Identifier: Apache-2.0
-
-//
-//
 #pragma once
 
+#include "DeltaImageCache.h"
+#include "McrtDebugFeedback.h"
 #include "McrtUpdate.h"
 #include "MessageHistory.h"
 #include "TimingRecorder.h"
 
 #include <mcrt_dataio/engine/mcrt/McrtNodeInfoMapItem.h>
+#include <mcrt_dataio/engine/merger/FbMsgMultiChans.h>
+#include <mcrt_dataio/engine/merger/MergeActionTracker.h>
+#include <mcrt_dataio/share/util/FloatValueTracker.h>
 #include <mcrt_messages/GeometryData.h>
 #include <mcrt_messages/OutputRates.h>
+#include <mcrt_messages/ProgressiveFeedback.h>
 #include <mcrt_messages/ProgressiveFrame.h>
 #include <mcrt_messages/ProgressMessage.h>
 #include <mcrt_messages/RenderMessages.h>
@@ -20,6 +23,7 @@
 #include <moonray/rendering/rndr/RenderContext.h>
 #include <moonray/rendering/rndr/RenderOptions.h>
 #include <scene_rdl2/common/grid_util/Arg.h>
+#include <scene_rdl2/common/grid_util/Fb.h>
 #include <scene_rdl2/common/grid_util/Parser.h>
 #include <scene_rdl2/common/math/Viewport.h>
 
@@ -36,8 +40,9 @@ namespace api {
 } // namespace arras4
 
 namespace mcrt_dataio {
-    class SysUsage;
     class BandwidthTracker;
+    class FpsTracker;
+    class SysUsage;
 } // namespace mcrt_dataio
 
 namespace scene_rdl2 {
@@ -49,6 +54,40 @@ namespace rec_time {
 namespace mcrt_computation {
 
 class McrtLogging;
+
+class RenderContextDriverOptions
+//
+// This class is used to specify options for the constructor of RenderContextDriver
+//
+{
+public:
+    using PackTilePrecisionMode = moonray::engine_tool::McrtFbSender::PrecisionControl;
+    using PostMainCallBack = std::function<void()>;
+    using StartFrameCallBack = std::function<void(const bool reloadScn, const std::string &source)>;
+    using StopFrameCallBack = std::function<void(const std::string &soruce)>;
+
+    RenderContextDriverOptions(const PostMainCallBack& argPostMainCallBack,
+                               const StartFrameCallBack& argStartFrameCallBack,
+                               const StopFrameCallBack& argStopFrameCallBack)
+        : postMainCallBack(argPostMainCallBack)
+        , startFrameCallBack(argStartFrameCallBack)
+        , stopFrameCallBack(argStopFrameCallBack)
+    {}
+
+    int driverId {0};
+    const moonray::rndr::RenderOptions* renderOptions {nullptr};
+    int numMachineOverride {-1}; // -1 skips value set
+    int machineIdOverride {-1}; // -1 skips value set
+    McrtLogging* mcrtLogging {nullptr}; // all logging related task will skip when we set nullptr
+    bool* mcrtDebugLogCreditUpdateMessage {nullptr};
+    PackTilePrecisionMode precisionMode {PackTilePrecisionMode::AUTO16};
+    std::atomic<bool>* renderPrepCancel {nullptr};
+    const PostMainCallBack& postMainCallBack {nullptr};
+    const StartFrameCallBack& startFrameCallBack {nullptr};
+    const StopFrameCallBack& stopFrameCallBack {nullptr};
+    mcrt_dataio::FpsTracker* recvFeedbackFpsTracker {nullptr};
+    mcrt_dataio::BandwidthTracker* recvFeedbackBandwidthTracker {nullptr};
+};
 
 class RenderContextDriver
 //
@@ -115,6 +154,7 @@ public:
     RenderContextDriver &operator =(const RenderContextDriver) = delete;
     RenderContextDriver(const RenderContextDriver &) = delete;
 
+#ifdef OLD
     RenderContextDriver(const int driverId,
                         const moonray::rndr::RenderOptions *renderOptions,
                         int numMachineOverride, // -1 skips value set
@@ -122,10 +162,15 @@ public:
                         McrtLogging *mcrtLogging, // all logging related task will skip when we set nullptr
                         bool* mcrtDebugLogCreditUpdateMessage,
                         PackTilePrecisionMode precisionMode,
-                        std::atomic<bool> *renderPrepCancel,
-                        const PostMainCallBack &postMainCallBack = nullptr,
-                        const StartFrameCallBack &startFrameCallBack = nullptr,
-                        const StopFrameCallBack &stopFrameCallBack = nullptr);
+                        std::atomic<bool>* renderPrepCancel,
+                        const PostMainCallBack& postMainCallBack = nullptr,
+                        const StartFrameCallBack& startFrameCallBack = nullptr,
+                        const StopFrameCallBack& stopFrameCallBack = nullptr,
+                        mcrt_dataio::FpsTracker* recvFeedbackFpsTracker = nullptr,
+                        mcrt_dataio::BandwidthTracker* recvFeedbackBandwidthTracker = nullptr);
+#else // else OLD
+    explicit RenderContextDriver(const RenderContextDriverOptions& options);
+#endif // end !OLD
     ~RenderContextDriver();
 
     int getDriverId() const { return mDriverId; }
@@ -152,6 +197,7 @@ public:
     void evalInvalidateResources(const arras4::api::Message &msg);
     void evalOutputRatesMessage(const arras4::api::Message &msg);
     void evalPickMessage(const arras4::api::Message &msg, EvalPickSendMsgCallBack sendCallBack);
+    void evalProgressiveFeedbackMessage(const arras4::api::Message& msg);
 
     void evalRenderCompleteMultiMachine(unsigned currSyncId);
 
@@ -173,8 +219,8 @@ public:
     //
     bool isEnoughSendInterval(const float fps, const bool dispatchGatesFrame);
 
-    void sendDelta(mcrt_dataio::SysUsage &sysUsage,
-                   mcrt_dataio::BandwidthTracker &bandwidthTracker,
+    void sendDelta(mcrt_dataio::SysUsage& sysUsage,
+                   mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
                    ProgressiveFrameSendCallBack callBackSend,
                    ProgressiveFrameSendCallBack callBackInfoOnly);
 
@@ -190,6 +236,7 @@ private:
     using EncodingType = moonray::engine_tool::ImgEncodingType;
     using Parser = scene_rdl2::grid_util::Parser;
     using RP_RESULT = moonray::rndr::RenderContext::RP_RESULT;
+    using ProgressiveFeedbackConstPtr = mcrt::ProgressiveFeedback::ConstPtr;
 
     //------------------------------
 
@@ -210,6 +257,8 @@ private:
 
     std::string showInitFrameControlStat() const;
     std::string showMultiBankControlStat() const;
+
+    std::string showFeedbackStats() const;
 
     //------------------------------
 
@@ -261,25 +310,34 @@ private:
     // return true : send FINISHED condition progressive message
     //        false : send non-FINISHED condition progressive message
     bool sendProgressiveFrameMessage(const bool directToClient,
-                                     mcrt_dataio::SysUsage &sysUsage,
-                                     mcrt_dataio::BandwidthTracker &bandwidthTracker,
-                                     std::vector<std::string> &infoDataArray,
+                                     mcrt_dataio::SysUsage& sysUsage,
+                                     mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
+                                     std::vector<std::string>& infoDataArray,
                                      ProgressiveFrameSendCallBack callBackSend);
-    void sendProgressiveFrameMessageInfoOnly(mcrt_dataio::SysUsage &sysUsage,
-                                             mcrt_dataio::BandwidthTracker &bandwidthTracker,
-                                             std::vector<std::string> &infoDataArray,
+    void sendProgressiveFrameMessageInfoOnly(mcrt_dataio::SysUsage& sysUsage,
+                                             mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
+                                             std::vector<std::string>& infoDataArray,
                                              ProgressiveFrameSendCallBack callBackSend);
 
     float getRenderProgress();
     bool checkOutputRatesInterval(const std::string &name);
     bool isMultiMachine() const { return mNumMachinesOverride > 1; }
     bool haveUpdates() const { return (mGeometryUpdate != nullptr) || !mMcrtUpdates.empty(); }
-    void piggyBackStatsInfo(mcrt_dataio::SysUsage &sysUsage,
-                            mcrt_dataio::BandwidthTracker &bandwidthTracker,
-                            std::vector<std::string> &infoDataArray);
-    void piggyBackTimingRec(std::vector<std::string> &infoDataArray);
+    void piggyBackStatsInfo(mcrt_dataio::SysUsage& sysUsage,
+                            const mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
+                            std::vector<std::string>& infoDataArray);
+    void piggyBackTimingRec(std::vector<std::string>& infoDataArray);
     mcrt::BaseFrame::ImageEncoding encoTypeConvert(EncodingType enco) const;
     void applyConfigOverrides();
+
+    //------------------------------
+
+    void setFeedbackActive(bool flag);
+    void setFeedbackIntervalSec(float sec);
+    void feedbackFbViewportCheck(ProgressiveFeedbackConstPtr feedbackMsg);
+    void decodeFeedbackImageData(ProgressiveFeedbackConstPtr feedbackMsg);
+    bool decodeMergeActionTracker(ProgressiveFeedbackConstPtr feedbackMsg);
+    void constructFeedbackMinusOne();
 
     //------------------------------
     //
@@ -287,9 +345,9 @@ private:
     //
     int mDriverId;
     std::thread mThread;
-    tbb::atomic<ThreadState> mThreadState;
-    tbb::atomic<RunState> mRunState;
-    bool mThreadShutdown;
+    tbb::atomic<ThreadState> mThreadState {ThreadState::INIT};
+    tbb::atomic<RunState> mRunState {RunState::WAIT};
+    bool mThreadShutdown {false}; 
 
     mutable std::mutex mMutexBoot;
     std::condition_variable mCvBoot; // using at boot threadMain sequence
@@ -319,8 +377,8 @@ private:
     // Moonray related data
     //
     moonray::rndr::RenderOptions mRenderOptions;
-    std::unique_ptr<moonray::rndr::RenderContext> mRenderContext;
-    std::unique_ptr<scene_rdl2::rdl2::SceneContext> mSceneContextBackup;
+    std::unique_ptr<moonray::rndr::RenderContext> mRenderContext {nullptr};
+    std::unique_ptr<scene_rdl2::rdl2::SceneContext> mSceneContextBackup {nullptr};
 
     moonray::engine_tool::McrtFbSender mFbSender;
 
@@ -330,57 +388,78 @@ private:
     //
     scene_rdl2::math::HalfOpenViewport mViewport; // viewport which used by last initializeBuffers()
 
-    mcrt::GeometryData::ConstPtr mGeometryUpdate;
+    mcrt::GeometryData::ConstPtr mGeometryUpdate {nullptr};
     std::vector<McrtUpdateShPtr> mMcrtUpdates;
 
-    unsigned mMultiBankTotal;
+    bool mFeedbackActiveUserInput {false}; // feedback action on/off switch user input
+    bool mFeedbackActiveRuntime {false};   // feedback action on/off condition for render frame runtime
+    float mFeedbackIntervalSec {1.0f};
+    uint32_t mFeedbackId {~static_cast<uint32_t>(0)}; // last received feedback data's id
+    DeltaImageCache mSentImageCache; // Cache of message data which sent to merge node
+    scene_rdl2::grid_util::Fb mFeedbackFb; // decode result of feedback data from merge node
+    mcrt_dataio::FbMsgMultiChans mFeedbackUpdates {/*debugMode=*/true}; // feedback data from merge node
+    mcrt_dataio::MergeActionTracker mFeedbackMergeActionTracker;
+    scene_rdl2::grid_util::Fb mFeedbackMinusOneFb;
+
+    std::unique_ptr<McrtDebugFeedback> mMcrtDebugFeedback;
+
+    unsigned mMultiBankTotal {1};
     std::vector<McrtUpdateShPtr> mMcrtUpdatesBacklog;
     
-    bool mReceivedSnapshotRequest;
+    bool mReceivedSnapshotRequest {false};
 
     mcrt::OutputRates mOutputRates; // controls frequency that render outputs are included in output
-    uint32_t mOutputRatesFrameCount; // frame counter for output rates control
+    uint32_t mOutputRatesFrameCount {0}; // frame counter for output rates control
 
-    uint32_t mSyncId;
+    uint32_t mSyncId {0};
 
     std::string mSource; // source id, correlating incoming to outgoing messages
 
     // 1st frame snapshsot timing control
-    int mInitFrameNonDelayedSnapshotMaxNode;
-    float mInitFrameDelayedSnapshotStepMS; // each host delay offset by millisec.
-    double mInitFrameDelayedSnapshotSec;
+    int mInitFrameNonDelayedSnapshotMaxNode {0};
+    float mInitFrameDelayedSnapshotStepMS {6.25f}; // each host delay offset by millisec.
+    double mInitFrameDelayedSnapshotSec {-1.0};
 
     //------------------------------
     //
     // Flags and counters which we are using to track particular conditions.
     //
-    RP_RESULT mLastTimeRenderPrepResult;
+    RP_RESULT mLastTimeRenderPrepResult {RP_RESULT::FINISHED};
 
-    double mLastTimeOfEnoughIntervalForSend; // last timing when it passed enough interval for send action
+    double mLastTimeOfEnoughIntervalForSend {0.0}; // last timing when it passed enough interval for send action
 
-    int mLastSnapshotFilmActivity; // film activity value of last snapshot, reset to 0 when restart render
+    int mLastSnapshotFilmActivity {0}; // film activity value of last snapshot, reset to 0 when restart render
 
-    uint32_t mSnapshotId; // snapshot id from render start, reset to 0 when restart render
+    uint32_t mSnapshotId {0}; // snapshot id from render start, reset to 0 when restart render
+    uint32_t mSendImageActionId {0}; // send image id from the beginning of starting process and never reset to 0
 
-    bool mReloadingScene; // indicates the scene was constructed from scratch
+    bool mReloadingScene {true}; // indicates the scene was constructed from scratch
 
-    int mRenderCounter; // rendering action (= render start) counter from process started
-    int mRenderCounterLastSnapshot; // rendering action counter at last snapshot
+    int mRenderCounter {0}; // rendering action (= render start) counter from process started
+    int mRenderCounterLastSnapshot {0}; // rendering action counter at last snapshot
 
-    double mInitialSnapshotReadyTime; // initial snapshot ready time for new frame
-    bool mBeforeInitialSnapshot; // In order to track the very first snapshot data of the new frame.
-    bool mSentCompleteFrame; // Condition flag about sending a snapshot of the completed condition.
+    double mInitialSnapshotReadyTime {0.0}; // initial snapshot ready time for new frame
+    bool mBeforeInitialSnapshot {false}; // In order to track the very first snapshot data of the new frame.
+    bool mSentCompleteFrame {true}; // Condition flag about sending a snapshot of the completed condition.
 
     // Set to true when we've sent a final pixel info buffer for this frame.
     // At that point we no longer need to snapshot the pixel info buffer any further.
-    bool mSentFinalPixelInfoBuffer;
+    bool mSentFinalPixelInfoBuffer {true};
 
     //------------------------------
     //
     // Statistical info and debug command parser
     //
-    std::shared_ptr<scene_rdl2::rec_time::RecTimeLog> mSnapshotToSendTimeLog;
+    std::shared_ptr<scene_rdl2::rec_time::RecTimeLog> mSnapshotToSendTimeLog
+    {
+        std::make_shared<scene_rdl2::rec_time::RecTimeLog>()
+    };
     TimingRecorder::TimingRecorderSingleFrameShPtr mTimingRecFrame;
+    mcrt_dataio::FloatValueTracker mFeedbackEvalLog {10}; // unit is millisec : keepEventTotal = 10
+    mcrt_dataio::FloatValueTracker mFeedbackLatency {10}; // unit is millisec : keepEventTotal = 10
+
+    mcrt_dataio::FpsTracker* mRecvFeedbackFpsTracker;
+    mcrt_dataio::BandwidthTracker* mRecvFeedbackBandwidthTracker;
 
     MessageHistory mMessageHistory; // experimental code for multi-bank logic. still, a work in progress
 
@@ -402,4 +481,3 @@ private:
 };
 
 } // namespace mcrt_computation
-

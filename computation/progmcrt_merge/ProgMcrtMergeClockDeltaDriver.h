@@ -1,8 +1,5 @@
 // Copyright 2023 DreamWorks Animation LLC
 // SPDX-License-Identifier: Apache-2.0
-
-//
-//
 #pragma once
 
 #include <mcrt_dataio/engine/merger/GlobalNodeInfo.h>
@@ -73,4 +70,3 @@ private:
 };
 
 } // namespace mcrt_computation
-

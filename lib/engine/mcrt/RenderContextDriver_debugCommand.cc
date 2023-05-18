@@ -1,8 +1,5 @@
 // Copyright 2023 DreamWorks Animation LLC
 // SPDX-License-Identifier: Apache-2.0
-
-//
-//
 #include "RenderContextDriver.h"
 
 #include <moonray/rendering/rndr/RenderContext.h>
@@ -45,6 +42,32 @@ RenderContextDriver::debugCommandParserConfigure()
                [&](Arg& arg) -> bool { return mParserMultiBankControl.main(arg.childArg()); });
     parser.opt("logging", "...command...", "logging related command",
                [&](Arg& arg) -> bool { return mParserLoggingControl.main(arg.childArg()); });
+    parser.opt("feedback", "<on|off|show>",
+               "enable/disable feedback logic. This condition will apply next render start timing",
+               [&](Arg& arg) -> bool {
+                   if (arg() != "show") setFeedbackActive((arg++).as<bool>(0));
+                   else arg++;
+                   return arg.msg(scene_rdl2::str_util::boolStr(mFeedbackActiveUserInput) + '\n');
+               });
+    parser.opt("feedbackInterval", "<intervalSec|show>", "feedback interval by sec",
+               [&](Arg& arg) -> bool {
+                   if (arg() != "show") setFeedbackIntervalSec((arg++).as<float>(0));
+                   else arg++;
+                   return arg.msg(std::to_string(mFeedbackIntervalSec) + " sec\n");
+               });
+    parser.opt("feedbackFb", "...command...", "feedback fb command",
+               [&](Arg& arg) -> bool { return mFeedbackFb.getParser().main(arg.childArg()); });
+    parser.opt("feedbackUpdate", "...command...", "feedback update command",
+               [&](Arg& arg) -> bool { return mFeedbackUpdates.getParser().main(arg.childArg()); });
+    parser.opt("feedbackDebug", "...command...", "mcrt debug feedback command",
+               [&](Arg& arg) -> bool {
+                   if (!mMcrtDebugFeedback) return arg.msg("mcrt debug feedback logic is disabled\n");
+                   return mMcrtDebugFeedback->getParser().main(arg.childArg());
+               });
+    parser.opt("feedbackStats", "", "show feedback statistical information",
+               [&](Arg& arg) -> bool { return arg.msg(showFeedbackStats() + '\n'); });
+    parser.opt("sentImageCache", "...command...", "sent image data cache command",
+               [&](Arg& arg) -> bool { return mSentImageCache.getParser().main(arg.childArg()); });
 
     //------------------------------
 
@@ -187,4 +210,3 @@ RenderContextDriver::debugCommandRenderContext(Arg &arg)
 }
 
 } // namespace mcrt_computation
-
