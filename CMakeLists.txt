@@ -11,7 +11,7 @@ project(${projectString}
 
 string(TOUPPER ${PROJECT_NAME} PROJECT_NAME_UPPER)
 list(APPEND CMAKE_MESSAGE_CONTEXT ${PROJECT_NAME})
-list (APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 # ================================================
 # Options
@@ -19,11 +19,14 @@ list (APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 option(${PROJECT_NAME_UPPER}_BUILD_TESTING
     "Whether or not to build the unittests" YES)
 
+option(ABI_SET_VERSION "Enable the abi-version option" ON)
+if(ABI_SET_VERSION)
+    set(ABI_VERSION "6" CACHE STRING "If ABI_SET_VERSION is on, which version to set")
+endif()
+
 # ================================================
 # Find dependencies
 # ================================================
-message("CMAKE_MODULE_PATH is ${CMAKE_MODULE_PATH}")
-
 if("${PROJECT_NAME}" STREQUAL "${CMAKE_PROJECT_NAME}")
     find_package(McrtMessages REQUIRED)
     find_package(ArrasCore REQUIRED)
