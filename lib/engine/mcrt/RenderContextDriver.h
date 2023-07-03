@@ -27,8 +27,6 @@
 #include <scene_rdl2/common/grid_util/Parser.h>
 #include <scene_rdl2/common/math/Viewport.h>
 
-#include <tbb/atomic.h>
-
 #include <condition_variable>
 #include <mutex>
 #include <thread>
@@ -345,8 +343,8 @@ private:
     //
     int mDriverId;
     std::thread mThread;
-    tbb::atomic<ThreadState> mThreadState {ThreadState::INIT};
-    tbb::atomic<RunState> mRunState {RunState::WAIT};
+    std::atomic<ThreadState> mThreadState {ThreadState::INIT};
+    std::atomic<RunState> mRunState {RunState::WAIT};
     bool mThreadShutdown {false}; 
 
     mutable std::mutex mMutexBoot;
