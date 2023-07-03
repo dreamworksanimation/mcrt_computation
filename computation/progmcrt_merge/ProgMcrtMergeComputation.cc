@@ -107,7 +107,7 @@ ProgMcrtMergeComputation::configure(const std::string &op,
     if (aConfig[arras4::api::ConfigNames::maxThreads].isIntegral()) {
         mNumThreads = aConfig[arras4::api::ConfigNames::maxThreads].asInt();
     } else {
-        mNumThreads = tbb::task_scheduler_init::default_num_threads();
+        mNumThreads = tbb::info::default_concurrency();
     }
 
     if (aConfig["packTilePrecision"].isString()) {
@@ -179,7 +179,7 @@ ProgMcrtMergeComputation::onStart()
 #       ifdef DEVELOP_VER_MESSAGE
         std::cerr << ">> ProgMcrtMergeComputation.cc set TBB numThreads:" << mNumThreads << std::endl;
 #       endif // end DEVELOP_VER_MESSAGE
-        mTaskScheduler = new tbb::task_scheduler_init(mNumThreads);
+        mTaskScheduler = new tbb::global_control(tbb::global_control::max_allowed_parallelism, mNumThreads);
     }
 
     //------------------------------
@@ -436,7 +436,7 @@ ProgMcrtMergeComputation::onViewportChanged(const mcrt::BaseFrame &msg)
     // This mFeedbackActive condition is not propergated into FbMsgSingleFrame object yet. However, seting
     // mFeedbackActive into FbMsgSingleFrame object would happen just after finishing this function.
     // So we can use mFeedbackActive safely here.
-    // Also, mFeedbackActive is only updated by debug command and we don¡Çt need to MTlock logic to access
+    // Also, mFeedbackActive is only updated by debug command and we donï¿½ï¿½t need to MTlock logic to access
     // mFeedbackActive here.
     //        
     if (mFeedbackActive && mFeedbackIntervalSec > 0.0f) {
@@ -858,7 +858,7 @@ ProgMcrtMergeComputation::processFeedback()
     }
 
     // Under regular progressiveFrame data send to the client situation, we update denoise related
-    // information here, but we technically don¡Çt need these information under feedback logic.
+    // information here, but we technically donï¿½ï¿½t need these information under feedback logic.
     // So we just skip them.
 
     // We have to update mLastSentFeedbackSyncId for next feedback message

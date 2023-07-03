@@ -27,7 +27,7 @@
 #include <scene_rdl2/common/grid_util/Parser.h>
 #include <scene_rdl2/common/math/Viewport.h>
 
-#include <tbb/task_scheduler_init.h>
+#include <tbb/global_control.h>
 
 #include <cstdint>
 #include <memory>
@@ -176,7 +176,7 @@ private:
 
     arras4::api::UUID mPrevRecvMsg {""}; // for debug message
 
-    tbb::task_scheduler_init *mTaskScheduler {nullptr};
+    tbb::global_control *mTaskScheduler {nullptr};
 
     std::string mSource;        // source id, correlating incoming to outgoing messages
     
