@@ -174,6 +174,9 @@ private:
     float mPartialMergeRefreshInterval {0.25f}; // sec
     int mPartialMergeTilesTotal {2048}; // this value is not used when mPartialmergeRefreshInterval > 0.0
 
+    int mTunnelMachineId {-1}; // See comment of mcrt_dataio/lib/engine/merger/FbMsgSingleFrame.h
+                               // FbMsgSingleFrame::mTunnelMachineId
+
     arras4::api::UUID mPrevRecvMsg {""}; // for debug message
 
     tbb::task_scheduler_init *mTaskScheduler {nullptr};
@@ -197,4 +200,3 @@ private:
 };
 
 } // namespace mcrt_computation
-

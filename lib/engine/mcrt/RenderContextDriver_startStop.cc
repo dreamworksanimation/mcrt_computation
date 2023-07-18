@@ -16,7 +16,7 @@ void
 RenderContextDriver::startFrame()
 {
     mFeedbackActiveRuntime = mFeedbackActiveUserInput; // setup render time feedback flag from user defined flag
-    if (mFeedbackActiveRuntime) {
+    if (mFeedbackActiveRuntime || mProgressiveFrameRecMode) {
         //
         // Start feedback operation
         //

@@ -391,6 +391,8 @@ private:
     mcrt::GeometryData::ConstPtr mGeometryUpdate {nullptr};
     std::vector<McrtUpdateShPtr> mMcrtUpdates;
 
+    bool mProgressiveFrameRecMode {false}; // for debugging purpose
+
     bool mFeedbackActiveUserInput {false}; // feedback action on/off switch user input
     bool mFeedbackActiveRuntime {false};   // feedback action on/off condition for render frame runtime
     float mFeedbackIntervalSec {1.0f};

@@ -565,7 +565,7 @@ RenderContextDriver::sendProgressiveFrameMessage(const bool directToClient,
     //------------------------------
 
     callBackSend(frameMsg, mSource);
-    if (mFeedbackActiveRuntime) {
+    if (mFeedbackActiveRuntime || mProgressiveFrameRecMode) {
         mSentImageCache.enqueueMessage(frameMsg);
     }
 

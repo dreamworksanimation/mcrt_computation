@@ -18,66 +18,6 @@
 
 namespace mcrt_computation {
 
-#ifdef OLD
-RenderContextDriver::RenderContextDriver(const int driverId,
-                                         const moonray::rndr::RenderOptions* renderOptions,
-                                         int numMachineOverride,
-                                         int machineIdOverride,
-                                         McrtLogging *mcrtLogging,
-                                         bool* mcrtDebugLogCreditUpdateMessage,
-                                         PackTilePrecisionMode precisionMode,
-                                         std::atomic<bool>* renderPrepCancel,
-                                         const PostMainCallBack& postMainCallBack,
-                                         const StartFrameCallBack& startFrameCallBack,
-                                         const StopFrameCallBack& stopFrameCallBack,
-                                         mcrt_dataio::FpsTracker* recvFeedbackFpsTracker,
-                                         mcrt_dataio::BandwidthTracker* recvFeedbackBandwidthTracker)
-    : mDriverId(driverId)
-    , mNumMachinesOverride(numMachineOverride)
-    , mMachineIdOverride(machineIdOverride)
-    , mMcrtLogging(mcrtLogging)
-    , mMcrtDebugLogCreditUpdateMessage(mcrtDebugLogCreditUpdateMessage)
-    , mRenderPrepCancel(renderPrepCancel)
-    , mPostMainCallBack(postMainCallBack)
-    , mStartFrameCallBack(startFrameCallBack)
-    , mStopFrameCallBack(stopFrameCallBack)
-    , mPackTilePrecisionMode(precisionMode)
-    , mRecvFeedbackFpsTracker(recvFeedbackFpsTracker)
-    , mRecvFeedbackBandwidthTracker(recvFeedbackBandwidthTracker)
-    , mMcrtLoggingInfo((mcrtLogging) ? mcrtLogging->isEnableInfo() : false)
-    , mMcrtLoggingDebug((mcrtLogging) ? mcrtLogging->isEnableDebug() : false)
-{
-    if (renderOptions) {
-        mRenderOptions = *renderOptions; // save specified RenderOptions for delay construction and others
-    }
-
-    resetRenderContext();
-
-    mFbSender.setMachineId(mMachineIdOverride);
-
-    mMcrtNodeInfoMapItem.getMcrtNodeInfo().setHostName(mcrt_dataio::MiscUtil::getHostName());
-    mMcrtNodeInfoMapItem.getMcrtNodeInfo().setCpuTotal(mcrt_dataio::SysUsage::cpuTotal());
-    mMcrtNodeInfoMapItem.getMcrtNodeInfo().setMemTotal(mcrt_dataio::SysUsage::memTotal());
-    mMcrtNodeInfoMapItem.getMcrtNodeInfo().setMachineId(mMachineIdOverride);
-
-#   ifdef DEBUG_FEEDBACK
-    mMcrtDebugFeedback = std::make_unique<McrtDebugFeedback>(5, // keep max frame count
-                                                             static_cast<unsigned>(mMachineIdOverride));
-#   endif // end DEBUG_FEEDBACK    
-
-    debugCommandParserConfigure();
-
-    //------------------------------
-
-    mThread = std::move(std::thread(threadMain, this));
-
-    // Wait until thread is booted
-    std::unique_lock<std::mutex> uqLock(mMutexBoot);
-    mCvBoot.wait(uqLock, [&]{
-            return (mThreadState == ThreadState::IDLE); // Not wait if state is IDLE condition
-        });
-}
-#else // else OLD
 RenderContextDriver::RenderContextDriver(const RenderContextDriverOptions& options)
     : mDriverId(options.driverId)
     , mNumMachinesOverride(options.numMachineOverride)
@@ -124,7 +64,6 @@ RenderContextDriver::RenderContextDriver(const RenderContextDriverOptions& optio
             return (mThreadState == ThreadState::IDLE); // Not wait if state is IDLE condition
         });
 }
-#endif // end !OLD
 
 RenderContextDriver::~RenderContextDriver()
 {

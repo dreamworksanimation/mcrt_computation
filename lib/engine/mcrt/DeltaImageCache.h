@@ -7,6 +7,8 @@
 #include <scene_rdl2/common/grid_util/Parser.h>
 #include <scene_rdl2/common/math/Viewport.h>
 #include <scene_rdl2/common/rec_time/RecTime.h>
+#include <scene_rdl2/render/cache/CacheDequeue.h>
+#include <scene_rdl2/render/cache/CacheEnqueue.h>
 
 #include <list>
 #include <mutex>
@@ -20,6 +22,8 @@ class DeltaImageCacheItem
 //
 {
 public:
+    static constexpr unsigned UNDEFINED = ~static_cast<unsigned>(0);
+
     DeltaImageCacheItem() = default;
     DeltaImageCacheItem(mcrt::ProgressiveFrame::Ptr message, float deltaSec)
         : mDeltaSec(deltaSec)
@@ -28,13 +32,34 @@ public:
     DeltaImageCacheItem(const DeltaImageCacheItem& src) = default;
 
     float getDeltaSec() const { return mDeltaSec; }
-    unsigned getSendImageActionId() const { return mMessage->mSendImageActionId; }
+    unsigned getSendImageActionId() const
+    {
+        if (!mMessage) return UNDEFINED;
+        return mMessage->mSendImageActionId;
+    }
+    bool isCoarsePass() const
+    {
+        if (!mMessage) return false;
+
+        constexpr int COARSE_PASS = 0;
+        if (mMessage->mCoarsePassStatus == COARSE_PASS) return true;
+        return false;
+    }
 
     mcrt::ProgressiveFrame::Ptr getMessage() const { return mMessage; }
+
+    void encode(scene_rdl2::cache::CacheEnqueue& cEnq) const;
+    void decode(scene_rdl2::cache::CacheDequeue& cDeq);
 
     std::string show() const;
 
 private:
+
+    void encodeProgressiveFrame(scene_rdl2::cache::CacheEnqueue& cEnq) const;
+    void decodeProgressiveFrame(scene_rdl2::cache::CacheDequeue& cDeq);
+
+    //------------------------------
+
     float mDeltaSec {0.0f};           // time delta from DeltaImageCache construction
     mcrt::ProgressiveFrame::Ptr mMessage {nullptr};
 };
@@ -86,6 +111,7 @@ public:
     Parser& getParser() { return mParser; }
 
 private:
+    using MsgOutCallBack = std::function<bool(const std::string& message)>;
 
     inline float calcCachedDataTimeLength() const; // return time length of cache data by sec
 
@@ -101,17 +127,29 @@ private:
     void mergeTiles(const scene_rdl2::grid_util::Fb::PartialMergeTilesTbl& tileTbl,
                     unsigned lastPartialMergeTileId);
 
+
+    const DeltaImageCacheItem* findItem(const size_t sendImageActionId) const;
+
     void parserConfigure();
+    bool cmdDecodeSingleItem(const unsigned sendImageActionId, const MsgOutCallBack& msgOut);
+    bool cmdSaveSentData(const std::string& filename, const MsgOutCallBack& msgOut) const;
+    bool cmdLoadSentData(const std::string& filename, const MsgOutCallBack& msgOut);
+    bool cmdDecodeAndSavePPM(const unsigned startId, const unsigned endId, const std::string& filename,
+                             const MsgOutCallBack& msgOut);
 
     //------------------------------
 
     scene_rdl2::rec_time::RecTime mRecTime;
 
+    // If this bool is true, DeltaImageCache does not work for feedback logic and changes its behavior to
+    // progressiveFrame data debugging purposes.
+    bool mDebugMode {false};
+
     float mMaxCachedDataTimeLength {10.0f}; // sec
     mutable std::mutex mSentDataMutex;
     std::list<DeltaImageCacheItem> mSentData;
 
-    unsigned mDecodedSendImageActionId {~static_cast<unsigned>(0)}; // last decoded sendImageActionId
+    unsigned mDecodedSendImageActionId {DeltaImageCacheItem::UNDEFINED}; // last decoded sendImageActionId
     unsigned mLastPartialMergeTileId {0}; // last partial merge tileId
     unsigned mWidth {0}; // internal framebuffer width
     unsigned mHeight {0}; // internal framebuffer height

@@ -166,6 +166,7 @@ ProgMcrtMergeComputation::onStart()
         mGlobalNodeInfo.setMergeMemTotal(mcrt_dataio::SysUsage::memTotal());
     }
     mFbMsgMultiFrames.reset(new mcrt_dataio::FbMsgMultiFrames(&mGlobalNodeInfo, &mFeedbackActive));
+    mFbMsgMultiFrames->setTunnelMachineIdInfo(&mTunnelMachineId);
 
     int totalCacheFrames = 2;
     if (!mFbMsgMultiFrames->initTotalCacheFrames(totalCacheFrames) ||
@@ -1004,14 +1005,18 @@ ProgMcrtMergeComputation::parserConfigureDebugCommand()
                    mSendDup = (arg++).as<int>(0);
                    return arg.fmtMsg("sendDup:%d\n", mSendDup);
                });
-    parser.opt("partialMerge", "<tileTotal>", "set partial merge tile total",
-               [&](Arg& arg) -> bool {
-                   mPartialMergeTilesTotal = (arg++).as<int>(0);
+    parser.opt("partialMerge", "<tileTotal|show>",
+               "set partial merge tile total. PartialMerge is off if this val and partialMergeRefresh == 0.0",
+               [&](Arg& arg) {
+                   if ((arg)() == "show") arg++;
+                   else                   mPartialMergeTilesTotal = (arg++).as<int>(0);
                    return arg.fmtMsg("partialMerge %d tiles\n", mPartialMergeTilesTotal);
                });
-    parser.opt("partialMergeRefresh", "<intervalSec>", "set partial merge refresh interval by sec",
-               [&](Arg& arg) -> bool {
-                   mPartialMergeRefreshInterval = (arg++).as<float>(0);
+    parser.opt("partialMergeRefresh", "<intervalSec|show>",
+               "set partial merge refresh interval by sec. use partialMerge val when this is 0.0f",
+               [&](Arg& arg) {
+                   if ((arg)() == "show") arg++;
+                   else                   mPartialMergeRefreshInterval = (arg++).as<float>(0);
                    return arg.fmtMsg("partialMergeRefreshInterval %s\n",
                                      str_util::secStr(mPartialMergeRefreshInterval).c_str());
                });
@@ -1031,6 +1036,15 @@ ProgMcrtMergeComputation::parserConfigureDebugCommand()
                    if ((arg)() == "show") arg++;
                    else                   mStopMcrtControl = (arg++).as<bool>(0);
                    return arg.msg(std::string("stopMcrtControl:") + str_util::boolStr(mStopMcrtControl));
+               });
+    parser.opt("tunnel", "<machineId|show>",
+               "enable tunnel operation and only this machineId data is sent to client without merge."
+               "negative value disables tunnel effect. This setup is staged and activated when a new "
+               "frame is started.",
+               [&](Arg& arg) {
+                   if ((arg)() == "show") arg++;
+                   else mTunnelMachineId = (arg++).as<int>(0);
+                   return arg.fmtMsg("tunnelMachineId:%d\n", mTunnelMachineId);
                });
     parser.opt("feedback", "<on|off|show>",
                "enable/disable feedback logic. This condition will apply next render start timing",

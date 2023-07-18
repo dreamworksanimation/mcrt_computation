@@ -47,7 +47,7 @@ RenderContextDriver::debugCommandParserConfigure()
                [&](Arg& arg) -> bool {
                    if (arg() != "show") setFeedbackActive((arg++).as<bool>(0));
                    else arg++;
-                   return arg.msg(scene_rdl2::str_util::boolStr(mFeedbackActiveUserInput) + '\n');
+                   return arg.msg(str_util::boolStr(mFeedbackActiveUserInput) + '\n');
                });
     parser.opt("feedbackInterval", "<intervalSec|show>", "feedback interval by sec",
                [&](Arg& arg) -> bool {
@@ -68,6 +68,12 @@ RenderContextDriver::debugCommandParserConfigure()
                [&](Arg& arg) -> bool { return arg.msg(showFeedbackStats() + '\n'); });
     parser.opt("sentImageCache", "...command...", "sent image data cache command",
                [&](Arg& arg) -> bool { return mSentImageCache.getParser().main(arg.childArg()); });
+    parser.opt("progressiveFrameRec", "<on|off|show>", "progressiveFrame data rec mode for debug",
+               [&](Arg& arg) {
+                   if (arg() != "show") mProgressiveFrameRecMode = (arg++).as<bool>(0);
+                   else arg++;
+                   return arg.msg(str_util::boolStr(mProgressiveFrameRecMode) + '\n');
+               });
 
     //------------------------------
 
@@ -152,14 +158,14 @@ RenderContextDriver::debugCommandParserConfigure()
                     return arg.fmtMsg("logging global switch %s\n",
                                       str_util::boolStr(LogEventRegistry::getLoggingGlobalSwitch()).c_str());
                 });
-    parserL.opt("udimMissing", "<on|off|show>", "udim missing texture warning switch on/off or show current info",
+    parserL.opt("udimMissing", "<on|off|show>",
+                "udim missing texture warning switch on/off or show current info",
                 [&](Arg& arg) -> bool {
                     using UdimTexture = moonray::shading::UdimTexture;
                     if (arg() == "show") arg++;
                     else UdimTexture::setUdimMissingTextureWarningSwitch((arg++).as<bool>(0));
                     return arg.fmtMsg("udim missing warning %s\n",
-                                      str_util::boolStr
-                                      (UdimTexture::getUdimMissingTextureWarningSwitch()).c_str());
+                                      str_util::boolStr(UdimTexture::getUdimMissingTextureWarningSwitch()).c_str());
                 });
     parserL.opt("debugLogCreditUpdate", "<on|off|show>", "debug logging condition for creditUpdate message",
                 [&](Arg& arg) -> bool {
