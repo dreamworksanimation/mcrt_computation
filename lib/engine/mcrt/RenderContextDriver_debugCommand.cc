@@ -150,13 +150,13 @@ RenderContextDriver::debugCommandParserConfigure()
 
     Parser& parserL = mParserLoggingControl;
     parserL.description("logging control command");
-    parserL.opt("global", "<on|off|show>", "logging global switch on/off or show current info",
+    parserL.opt("global", "<on|off|show>", "logging enabled on/off or show current info",
                 [&](Arg& arg) -> bool {
-                    using LogEventRegistry = scene_rdl2::logging::LogEventRegistry;
+                    using LogEventRegistry = scene_rdl2::rdl2::ShaderLogEventRegistry;
                     if (arg() == "show") arg++;
-                    else LogEventRegistry::setLoggingGlobalSwitch((arg++).as<bool>(0));
+                    else LogEventRegistry::setLoggingEnabled((arg++).as<bool>(0));
                     return arg.fmtMsg("logging global switch %s\n",
-                                      str_util::boolStr(LogEventRegistry::getLoggingGlobalSwitch()).c_str());
+                                      str_util::boolStr(LogEventRegistry::getLoggingEnabled()).c_str());
                 });
     parserL.opt("udimMissing", "<on|off|show>",
                 "udim missing texture warning switch on/off or show current info",

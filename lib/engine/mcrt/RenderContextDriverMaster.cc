@@ -39,7 +39,7 @@ RenderContextDriverMaster::RenderContextDriverMaster(int numMachineOverride,
         // ClientReceiverFb APIs anyway at this moment.
         // We should consider how to check backend computations error/warning from the client under
         // a multi-machine context.
-        scene_rdl2::logging::LogEventRegistry::setLoggingGlobalSwitch(false);
+        scene_rdl2::rdl2::ShaderLogEventRegistry::setLoggingEnabled(false);
 
         // Udim missing texture warning is also a huge bottleneck of multi-machine interactivity.
         // We turn off warning messages here as well.
