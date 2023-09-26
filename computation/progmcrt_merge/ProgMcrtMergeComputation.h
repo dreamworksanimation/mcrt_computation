@@ -51,13 +51,13 @@ public:
     using Arg = scene_rdl2::grid_util::Arg;
     using Parser = scene_rdl2::grid_util::Parser;
 
-    explicit ProgMcrtMergeComputation(arras4::api::ComputationEnvironment *env);
+    explicit ProgMcrtMergeComputation(arras4::api::ComputationEnvironment* env);
     virtual ~ProgMcrtMergeComputation();
 
-    virtual arras4::api::Result configure(const std::string &op,
+    virtual arras4::api::Result configure(const std::string& op,
                                           arras4::api::ObjectConstRef config);
     virtual void onIdle();
-    virtual arras4::api::Result onMessage(const arras4::api::Message &message);
+    virtual arras4::api::Result onMessage(const arras4::api::Message& message);
 
 protected:
     void onStart();
@@ -67,26 +67,28 @@ private:
 
     void setSource(arras4::api::ObjectConstRef source);
 
-    void onCreditUpdate(const arras4::api::Message &msg);
+    void onCreditUpdate(const arras4::api::Message& msg);
 
-    void onViewportChanged(const mcrt::BaseFrame &msg);
+    void onViewportChanged(const mcrt::BaseFrame& msg);
 
     void handleGenericMessage(mcrt::GenericMessage::ConstPtr msg);
     void sendCompleteToMcrt();
 
-    void onJSONMessage(const mcrt::JSONMessage::ConstPtr &msg);
+    void onJSONMessage(const mcrt::JSONMessage::ConstPtr& msg);
 
-    void sendCredit(const arras4::api::Message &msg);
+    void sendCredit(const arras4::api::Message& msg);
 
+    void updateNetIO();
     void recvBpsUpdate(mcrt::ProgressiveFrame::ConstPtr frameMsg);
     void sendBpsUpdate(size_t messageSerializedByte);
-    void piggyBackInfo(std::vector<std::string> &infoDataArray);
-    bool decodeMergeSendProgressiveFrame(std::vector<std::string> &infoDataArray);
-    void sendProgressiveFrame(std::vector<std::string> &infoDataArray);
-    void sendInfoOnlyProgressiveFrame(std::vector<std::string> &infoDataArray);
+    void piggyBackInfo(std::vector<std::string>& infoDataArray);
+    bool decodeMergeSendProgressiveFrame(std::vector<std::string>& infoDataArray);
+    void sendProgressiveFrame(std::vector<std::string>& infoDataArray);
+    void sendInfoOnlyProgressiveFrame(std::vector<std::string>& infoDataArray);
+    void sendProgressUpdateToMcrt();
     void processFeedback();
 
-    uint64_t calcMessageSize(mcrt::BaseFrame &frameMsg) const;
+    uint64_t calcMessageSize(mcrt::BaseFrame& frameMsg) const;
 
     void parserConfigureGenericMessage();
     void parserConfigureDebugCommand();
@@ -122,6 +124,9 @@ private:
 
     // Flag if we got a progressive frame message
     bool mHasProgressiveFrame {false};
+
+    scene_rdl2::rec_time::RecTime mSendProgressToMcrtTime;
+    float mSendProgressToMcrtIntervalSec {2.0f};
 
     // Feedback init callback function for push message
     const std::function<bool()> mFeedbackInitCallBack {[&]() {initFeedbackFbSender(); return true;}}; 
@@ -179,7 +184,7 @@ private:
 
     arras4::api::UUID mPrevRecvMsg {""}; // for debug message
 
-    tbb::task_scheduler_init *mTaskScheduler {nullptr};
+    tbb::task_scheduler_init* mTaskScheduler {nullptr};
 
     std::string mSource;        // source id, correlating incoming to outgoing messages
     

@@ -44,6 +44,7 @@ RenderContextDriver::RenderContextDriver(const RenderContextDriverOptions& optio
 
     mMcrtNodeInfoMapItem.getMcrtNodeInfo().setHostName(mcrt_dataio::MiscUtil::getHostName());
     mMcrtNodeInfoMapItem.getMcrtNodeInfo().setCpuTotal(mcrt_dataio::SysUsage::cpuTotal());
+    mMcrtNodeInfoMapItem.getMcrtNodeInfo().setAssignedCpuTotal(mRenderOptions.getThreads());
     mMcrtNodeInfoMapItem.getMcrtNodeInfo().setMemTotal(mcrt_dataio::SysUsage::memTotal());
     mMcrtNodeInfoMapItem.getMcrtNodeInfo().setMachineId(mMachineIdOverride);
 

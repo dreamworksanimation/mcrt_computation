@@ -46,6 +46,7 @@ target_link_libraries(${component}
         McrtDataio::engine_merger
         McrtDataio::share_util
         McrtMessages::mcrt_messages
+	Moonray::rendering_mcrt_common
         Moonray::rendering_rndr
         Moonray::rendering_shading
         SceneRdl2::common_grid_util

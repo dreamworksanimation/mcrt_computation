@@ -7,6 +7,7 @@
 #include <mcrt_dataio/share/util/FpsTracker.h>
 #include <mcrt_dataio/share/util/SysUsage.h>
 #include <mcrt_messages/BaseFrame.h>
+#include <moonray/rendering/mcrt_common/ExecutionMode.h>
 #include <moonray/rendering/rndr/RenderContext.h>
 #include <moonray/rendering/rndr/TileScheduler.h>
 #include <scene_rdl2/common/rec_time/RecTime.h>
@@ -83,6 +84,20 @@ RenderContextDriver::sendDelta(mcrt_dataio::SysUsage& sysUsage,
     {
         std::string infoData;
         std::lock_guard<std::mutex> lock(mMutexMcrtNodeInfoMapItem);
+
+        if (sysUsage.isCpuUsageReady()) {
+            //
+            // update CPU/Memory usage info
+            //
+            mcrt_dataio::McrtNodeInfo &mcrtNodeInfo = mMcrtNodeInfoMapItem.getMcrtNodeInfo();
+            mcrtNodeInfo.setCpuUsage(sysUsage.cpu());
+            mcrtNodeInfo.setCoreUsage(sysUsage.getCoreUsage());
+            mcrtNodeInfo.setMemUsage(sysUsage.mem());
+
+            updateExecModeMcrtNodeInfo();
+            updateNetIO(sysUsage);
+        }
+
         if (mMcrtNodeInfoMapItem.encode(infoData)) {
             infoDataArray.push_back(std::move(infoData));
         }
@@ -641,6 +656,13 @@ RenderContextDriver::getRenderProgress()
     return mRenderContext->getFrameProgressFraction(nullptr, nullptr);
 }
 
+float
+RenderContextDriver::getGlobalRenderProgress()
+{
+    if (!mRenderContext) return 0.0f; // Nothing to do
+    return mRenderContext->getMultiMachineGlobalProgressFraction();
+}
+
 bool
 RenderContextDriver::checkOutputRatesInterval(const std::string &name)
 {
@@ -665,20 +687,43 @@ RenderContextDriver::checkOutputRatesInterval(const std::string &name)
 }
 
 void
+RenderContextDriver::updateExecModeMcrtNodeInfo()
+{
+    auto convertExecMode = [](const moonray::mcrt_common::ExecutionMode& execMode) {
+        switch (execMode) {
+        case moonray::mcrt_common::ExecutionMode::AUTO : return mcrt_dataio::McrtNodeInfo::ExecMode::AUTO;
+        case moonray::mcrt_common::ExecutionMode::VECTORIZED : return mcrt_dataio::McrtNodeInfo::ExecMode::VECTOR;
+        case moonray::mcrt_common::ExecutionMode::SCALAR : return mcrt_dataio::McrtNodeInfo::ExecMode::SCALAR;
+        case moonray::mcrt_common::ExecutionMode::XPU : return mcrt_dataio::McrtNodeInfo::ExecMode::XPU;
+        default : return mcrt_dataio::McrtNodeInfo::ExecMode::UNKNOWN;
+        }
+    };
+
+    moonray::rndr::RenderContext* renderContext = getRenderContext();
+    mcrt_dataio::McrtNodeInfo::ExecMode execModeMcrtNodeInfo =
+        convertExecMode(renderContext->getCurrentExecutionMode());
+
+    mcrt_dataio::McrtNodeInfo &mcrtNodeInfo = mMcrtNodeInfoMapItem.getMcrtNodeInfo();
+    if (mcrtNodeInfo.getExecMode() != execModeMcrtNodeInfo) {
+        mcrtNodeInfo.setExecMode(execModeMcrtNodeInfo);
+    }
+}
+
+void
+RenderContextDriver::updateNetIO(mcrt_dataio::SysUsage& sysUsage)
+{
+    if (sysUsage.netIO()) { // update netIO info
+        mcrt_dataio::McrtNodeInfo &mcrtNodeInfo = mMcrtNodeInfoMapItem.getMcrtNodeInfo();
+        mcrtNodeInfo.setNetRecvBps(sysUsage.getNetRecv());
+        mcrtNodeInfo.setNetSendBps(sysUsage.getNetSend());
+    }
+}
+
+void
 RenderContextDriver::piggyBackStatsInfo(mcrt_dataio::SysUsage& sysUsage,
                                         const mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
                                         std::vector<std::string>& infoDataArray)
 {
-    if (sysUsage.isCpuUsageReady()) {
-        //
-        // update CPU/Memory usage info
-        //
-        std::lock_guard<std::mutex> lock(mMutexMcrtNodeInfoMapItem);
-        mcrt_dataio::McrtNodeInfo &mcrtNodeInfo = mMcrtNodeInfoMapItem.getMcrtNodeInfo();
-        mcrtNodeInfo.setCpuUsage(sysUsage.cpu());
-        mcrtNodeInfo.setMemUsage(sysUsage.mem());
-    }
-
     if (mSnapshotToSendTimeLog->getTotal() > 24) {
         //
         // every 24 send action, we update SnapshotToSend time average info
@@ -719,6 +764,7 @@ RenderContextDriver::piggyBackStatsInfo(mcrt_dataio::SysUsage& sysUsage,
         }
         
         mcrtNodeInfo.setProgress(getRenderProgress()); // progress fraction update
+        mcrtNodeInfo.setGlobalProgress(getGlobalRenderProgress()); // global progress fraction update
 
         //
         // encode piggy back info

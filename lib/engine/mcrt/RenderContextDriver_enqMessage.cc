@@ -298,6 +298,11 @@ RenderContextDriver::processRdlMessage(const MessageContentConstPtr &msg,
     setSource(src);
     mSyncId = rdlMsg->mSyncId;
 
+    if (renderContext) {
+        // reset global progress for multi-machine configuration
+        renderContext->setMultiMachineGlobalProgressFraction(0.0f);
+    }
+
     // If we haven't begun rendering yet (mRenderContext is NULL),
     // or we need to restart rendering from scratch, do so here
     std::string oldCancelInfo;

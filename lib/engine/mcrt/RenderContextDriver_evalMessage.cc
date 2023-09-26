@@ -120,6 +120,20 @@ RenderContextDriver::evalPickMessage(const arras4::api::Message &msg, EvalPickSe
 }
 
 void
+RenderContextDriver::evalMultiMachineGlobalProgressUpdate(unsigned currSyncId, float fraction)
+{
+#   ifdef DEBUG_MSG_EVAL
+    std::cerr << ">> RenderContextDriver_evalMessage.cc evalMultiMachineGlobalProgressUpdate()\n";
+#   endif // end DEBUG_MSG_EVAL
+
+    if (currSyncId == mSyncId) {
+        if (mRenderContext) {
+            mRenderContext->setMultiMachineGlobalProgressFraction(fraction);
+        }
+    }
+}
+
+void
 RenderContextDriver::evalRenderCompleteMultiMachine(unsigned currSyncId)
 {
 #   ifdef DEBUG_MSG_EVAL

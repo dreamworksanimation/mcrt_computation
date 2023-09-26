@@ -28,13 +28,13 @@ public:
     using Parser = scene_rdl2::grid_util::Parser;
     using Arg = scene_rdl2::grid_util::Arg;
 
-    explicit ProgMcrtComputation(arras4::api::ComputationEnvironment *env);
+    explicit ProgMcrtComputation(arras4::api::ComputationEnvironment* env);
     virtual ~ProgMcrtComputation();
 
-    virtual arras4::api::Result configure(const std::string &op, arras4::api::ObjectConstRef config);
+    virtual arras4::api::Result configure(const std::string& op, arras4::api::ObjectConstRef config);
     virtual void onIdle();
-    virtual arras4::api::Result onMessage(const arras4::api::Message &message);
-    virtual arras4::api::Object property(const std::string &name);
+    virtual arras4::api::Result onMessage(const arras4::api::Message& message);
+    virtual arras4::api::Object property(const std::string& name);
 
 protected:
     void onStart();
@@ -42,15 +42,15 @@ protected:
 
 private: 
     void handleGenericMessage(mcrt::GenericMessage::ConstPtr jm);
-    void onJSONMessage(const arras4::api::Message &msg);
-    void onCreditUpdate(const arras4::api::Message &msg);
+    void onJSONMessage(const arras4::api::Message& msg);
+    void onCreditUpdate(const arras4::api::Message& msg);
 
     void parserConfigureGenericMessage();
 
-    void sendProgressMessage(const std::string &stage, const std::string &event, const std::string &source);
-    void sendProgressMessageStageShading(const mcrt::BaseFrame::Status &status,
+    void sendProgressMessage(const std::string& stage, const std::string& event, const std::string& source);
+    void sendProgressMessageStageShading(const mcrt::BaseFrame::Status& status,
                                          const float progress,
-                                         const std::string &source);
+                                         const std::string& source);
 
     //------------------------------
 

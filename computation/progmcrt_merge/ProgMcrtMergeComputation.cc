@@ -41,13 +41,13 @@ namespace mcrt_computation {
 
 COMPUTATION_CREATOR(ProgMcrtMergeComputation);
 
-ProgMcrtMergeComputation::ProgMcrtMergeComputation(arras4::api::ComputationEnvironment *env)
+ProgMcrtMergeComputation::ProgMcrtMergeComputation(arras4::api::ComputationEnvironment* env)
     : Computation(env)
     , mMsgSendHandler(std::make_shared<mcrt_dataio::MsgSendHandler>())
     , mGlobalNodeInfo(false, mMsgSendHandler) // decodeOnly = false
 {
 #   ifdef USE_RAAS_DEBUG_FILENAME
-    char * delayFilename = getenv("RAAS_DEBUG_FILENAME");
+    char* delayFilename = getenv("RAAS_DEBUG_FILENAME");
     if (delayFilename) {
         std::cerr << ">> ProgMcrtMergeComputation.cc debug wait loop START"
                   << " delayFilename:" << delayFilename << std::endl;
@@ -72,8 +72,8 @@ ProgMcrtMergeComputation::~ProgMcrtMergeComputation()
 }
 
 arras4::api::Result
-ProgMcrtMergeComputation::configure(const std::string &op,
-                                    arras4::api::ObjectConstRef &aConfig)
+ProgMcrtMergeComputation::configure(const std::string& op,
+                                    arras4::api::ObjectConstRef& aConfig)
 {
     mSysUsage.cpu();            // do initial call for CPU usage monitor
 
@@ -195,7 +195,7 @@ ProgMcrtMergeComputation::onStart()
     //------------------------------
 
     // setup generic message send handler
-    mMsgSendHandler->set([&](const std::string &sendMsg) {
+    mMsgSendHandler->set([&](const std::string& sendMsg) {
             mcrt::GenericMessage::Ptr msg(new mcrt::GenericMessage);
             msg->mValue = sendMsg;
             send(msg);
@@ -225,6 +225,17 @@ ProgMcrtMergeComputation::onIdle()
         double currInterval = scene_rdl2::util::getSeconds() - mLastInfoPacketSentTime;
         double minInterval = 1.0 / static_cast<double>(mFps);
         if (minInterval <= currInterval) {
+            if (mSysUsage.isCpuUsageReady()) {
+                //
+                // update CPU/Memory usage info
+                //
+                mGlobalNodeInfo.setMergeCpuUsage(mSysUsage.cpu());
+                mGlobalNodeInfo.setMergeCoreUsage(mSysUsage.getCoreUsage());
+                mGlobalNodeInfo.setMergeMemUsage(mSysUsage.mem());
+
+                updateNetIO();
+            }
+
             std::string tmp;
             doSendInfo = mGlobalNodeInfo.encode(tmp);
             infoDataArray.push_back(tmp);
@@ -269,7 +280,7 @@ ProgMcrtMergeComputation::onIdle()
 }
 
 arras4::api::Result
-ProgMcrtMergeComputation::onMessage(const arras4::api::Message &aMsg)
+ProgMcrtMergeComputation::onMessage(const arras4::api::Message& aMsg)
 {
     if (aMsg.classId() == mcrt::ProgressiveFrame::ID) {
         // We call timeLogStart() everytime when message is received however log start logic is only
@@ -380,7 +391,7 @@ ProgMcrtMergeComputation::onMessage(const arras4::api::Message &aMsg)
 }
 
 void 
-ProgMcrtMergeComputation::onCreditUpdate(const arras4::api::Message &msg)
+ProgMcrtMergeComputation::onCreditUpdate(const arras4::api::Message& msg)
 {
     if (mCredit >= 0) {
         mcrt::CreditUpdate::ConstPtr c = msg.contentAs<mcrt::CreditUpdate>();
@@ -389,7 +400,7 @@ ProgMcrtMergeComputation::onCreditUpdate(const arras4::api::Message &msg)
 }
   
 void
-ProgMcrtMergeComputation::sendCredit(const arras4::api::Message &msg)
+ProgMcrtMergeComputation::sendCredit(const arras4::api::Message& msg)
 {
     // send credit back to an mcrt that has send us a frame
     mcrt::CreditUpdate::Ptr creditMsg = std::make_shared<mcrt::CreditUpdate>();
@@ -399,7 +410,7 @@ ProgMcrtMergeComputation::sendCredit(const arras4::api::Message &msg)
 }
 
 void
-ProgMcrtMergeComputation::onViewportChanged(const mcrt::BaseFrame &msg)
+ProgMcrtMergeComputation::onViewportChanged(const mcrt::BaseFrame& msg)
 {
     bool shouldReinit = false;
     scene_rdl2::math::Viewport currViewport(msg.getRezedViewport().minX(), msg.getRezedViewport().minY(),
@@ -458,7 +469,7 @@ ProgMcrtMergeComputation::handleGenericMessage(mcrt::GenericMessage::ConstPtr ms
 }
 
 void
-ProgMcrtMergeComputation::onJSONMessage(const mcrt::JSONMessage::ConstPtr &jMsg)
+ProgMcrtMergeComputation::onJSONMessage(const mcrt::JSONMessage::ConstPtr& jMsg)
 {
     const std::string messageID = jMsg->messageId();
     if (messageID == mcrt::RenderMessages::PICK_DATA_MESSAGE_ID) {
@@ -520,16 +531,8 @@ ProgMcrtMergeComputation::sendCompleteToMcrt()
 }
 
 void
-ProgMcrtMergeComputation::piggyBackInfo(std::vector<std::string> &infoDataArray)
+ProgMcrtMergeComputation::piggyBackInfo(std::vector<std::string>& infoDataArray)
 {
-    if (mSysUsage.isCpuUsageReady()) {
-        //
-        // update CPU/Memory usage info
-        //
-        mGlobalNodeInfo.setMergeCpuUsage(mSysUsage.cpu());
-        mGlobalNodeInfo.setMergeMemUsage(mSysUsage.mem());
-    }
-
     mGlobalNodeInfo.setMergeRecvBps(mRecvBandwidthTracker.getBps());
     mGlobalNodeInfo.setMergeSendBps(mSendBandwidthTracker.getBps());
 
@@ -557,7 +560,7 @@ ProgMcrtMergeComputation::piggyBackInfo(std::vector<std::string> &infoDataArray)
 }
 
 bool
-ProgMcrtMergeComputation::decodeMergeSendProgressiveFrame(std::vector<std::string> &infoDataArray)
+ProgMcrtMergeComputation::decodeMergeSendProgressiveFrame(std::vector<std::string>& infoDataArray)
 {
     mcrt_dataio::FbMsgSingleFrame* currFbMsgSingleFrame = mFbMsgMultiFrames->getDisplayFbMsgSingleFrame();
 
@@ -584,8 +587,8 @@ ProgMcrtMergeComputation::decodeMergeSendProgressiveFrame(std::vector<std::strin
             return false;
         }
     }
-    currFbMsgSingleFrame->decodeAll();
 
+    currFbMsgSingleFrame->decodeAll();
     mStats.updateMsgInterval();
 
     mFbSender.setHeaderInfoAndFbReset(currFbMsgSingleFrame, nullptr); // We should call resetLastHistory()
@@ -646,6 +649,7 @@ ProgMcrtMergeComputation::decodeMergeSendProgressiveFrame(std::vector<std::strin
     //
     // feedback to mcrt
     //
+    sendProgressUpdateToMcrt();
     if (currFbMsgSingleFrame->getFeedbackActive() &&
         mFeedbackIntervalSec > 0.0 && mSendFeedbackTime.end() >= mFeedbackIntervalSec) {
         processFeedback();
@@ -655,7 +659,7 @@ ProgMcrtMergeComputation::decodeMergeSendProgressiveFrame(std::vector<std::strin
 }
 
 void
-ProgMcrtMergeComputation::sendProgressiveFrame(std::vector<std::string> &infoDataArray)
+ProgMcrtMergeComputation::sendProgressiveFrame(std::vector<std::string>& infoDataArray)
 {
     piggyBackInfo(infoDataArray);
 
@@ -751,7 +755,7 @@ ProgMcrtMergeComputation::sendProgressiveFrame(std::vector<std::string> &infoDat
 }
 
 void
-ProgMcrtMergeComputation::sendInfoOnlyProgressiveFrame(std::vector<std::string> &infoDataArray)
+ProgMcrtMergeComputation::sendInfoOnlyProgressiveFrame(std::vector<std::string>& infoDataArray)
 {
     MNRY_ASSERT(infoDataArray.size());
 
@@ -786,6 +790,35 @@ ProgMcrtMergeComputation::sendInfoOnlyProgressiveFrame(std::vector<std::string> 
     std::cerr << ">> ProgMcrtMergeComputation.cc send progressiveFrame msg-only"
               << " msg:'" << msg << "'" << std::endl;
 #   endif // end DEBUG_MESSAGE_SEND_PROGRESSIVE
+}
+
+void
+ProgMcrtMergeComputation::sendProgressUpdateToMcrt()
+{
+    if (mSendProgressToMcrtTime.isInit()) {
+        mSendProgressToMcrtTime.start();
+        return;
+    }
+
+    if (mSendProgressToMcrtTime.end() < mSendProgressToMcrtIntervalSec) {
+        return;
+    }
+    
+    uint32_t syncId = mFbMsgMultiFrames->getDisplaySyncFrameId();
+    float fraction = mFbSender.getProgressFraction();
+
+    mcrt::GenericMessage::Ptr globalProgressMsg(new mcrt::GenericMessage);
+    globalProgressMsg->mValue = mcrt_dataio::McrtControl::msgGen_globalProgress(syncId, fraction);
+    send(globalProgressMsg);
+
+    mSendProgressToMcrtTime.start();
+
+    /* useful debug message
+    std::cerr << ">> ProgMcrtMergeComputation.cc sendProgressUpdateToMcrt()"
+              << " syncId:" << syncId
+              << " fraction:" << fraction
+              << " sendCmd:>" << globalProgressMsg->mValue << "<\n";
+    */
 }
 
 void
@@ -935,6 +968,15 @@ ProgMcrtMergeComputation::processFeedback()
 }
 
 void
+ProgMcrtMergeComputation::updateNetIO()
+{
+    if (mSysUsage.netIO()) { // update netIO info
+        mGlobalNodeInfo.setMergeNetRecvBps(mSysUsage.getNetRecv());
+        mGlobalNodeInfo.setMergeNetSendBps(mSysUsage.getNetSend());
+    }
+}
+
+void
 ProgMcrtMergeComputation::recvBpsUpdate(mcrt::ProgressiveFrame::ConstPtr frameMsg)
 {
     size_t dataSizeTotal = 0;
@@ -951,7 +993,7 @@ ProgMcrtMergeComputation::sendBpsUpdate(size_t messageSerializedByte)
 }
 
 uint64_t    
-ProgMcrtMergeComputation::calcMessageSize(mcrt::BaseFrame &frameMsg) const
+ProgMcrtMergeComputation::calcMessageSize(mcrt::BaseFrame& frameMsg) const
 {
     uint64_t msgSizeAll = 0;
     for (const mcrt::BaseFrame::DataBuffer &buffer: frameMsg.mBuffers) {
@@ -1269,7 +1311,7 @@ ProgMcrtMergeComputation::showFeedbackStats() const
         << " current runtime feedback condition";
         return ostr.str();
     };
-    auto showFeedbackEvalLog = [&]() -> std::string {
+    auto showFeedbackEvalLog = [&]() {
         std::ostringstream ostr;
         ostr
         << "feedbackEvalLog {\n"
@@ -1278,7 +1320,7 @@ ProgMcrtMergeComputation::showFeedbackStats() const
         << "}";
         return ostr.str();
     };
-    auto showSendFeedbackFpsTracker = [&]() -> std::string {
+    auto showSendFeedbackFpsTracker = [&]() {
         std::ostringstream ostr;
         ostr
         << "sendFeedbackFpsTracker {\n"
@@ -1287,7 +1329,7 @@ ProgMcrtMergeComputation::showFeedbackStats() const
         << "}";
         return ostr.str();
     };
-    auto showSendFeedbackBandwidthTracker = [&]() -> std::string {
+    auto showSendFeedbackBandwidthTracker = [&]() {
         std::ostringstream ostr;
         ostr
         << "sendFeedbackBandwidthTracker {\n"

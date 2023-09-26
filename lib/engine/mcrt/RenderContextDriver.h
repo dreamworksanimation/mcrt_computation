@@ -154,23 +154,7 @@ public:
     RenderContextDriver &operator =(const RenderContextDriver) = delete;
     RenderContextDriver(const RenderContextDriver &) = delete;
 
-#ifdef OLD
-    RenderContextDriver(const int driverId,
-                        const moonray::rndr::RenderOptions *renderOptions,
-                        int numMachineOverride, // -1 skips value set
-                        int machineIdOverride,  // -1 skips value set
-                        McrtLogging *mcrtLogging, // all logging related task will skip when we set nullptr
-                        bool* mcrtDebugLogCreditUpdateMessage,
-                        PackTilePrecisionMode precisionMode,
-                        std::atomic<bool>* renderPrepCancel,
-                        const PostMainCallBack& postMainCallBack = nullptr,
-                        const StartFrameCallBack& startFrameCallBack = nullptr,
-                        const StopFrameCallBack& stopFrameCallBack = nullptr,
-                        mcrt_dataio::FpsTracker* recvFeedbackFpsTracker = nullptr,
-                        mcrt_dataio::BandwidthTracker* recvFeedbackBandwidthTracker = nullptr);
-#else // else OLD
     explicit RenderContextDriver(const RenderContextDriverOptions& options);
-#endif // end !OLD
     ~RenderContextDriver();
 
     int getDriverId() const { return mDriverId; }
@@ -199,6 +183,7 @@ public:
     void evalPickMessage(const arras4::api::Message &msg, EvalPickSendMsgCallBack sendCallBack);
     void evalProgressiveFeedbackMessage(const arras4::api::Message& msg);
 
+    void evalMultiMachineGlobalProgressUpdate(unsigned currSyncId, float fraction);
     void evalRenderCompleteMultiMachine(unsigned currSyncId);
 
     void setReceivedSnapshotRequest(bool flag) { mReceivedSnapshotRequest = flag; }
@@ -320,9 +305,12 @@ private:
                                              ProgressiveFrameSendCallBack callBackSend);
 
     float getRenderProgress();
+    float getGlobalRenderProgress();
     bool checkOutputRatesInterval(const std::string &name);
     bool isMultiMachine() const { return mNumMachinesOverride > 1; }
     bool haveUpdates() const { return (mGeometryUpdate != nullptr) || !mMcrtUpdates.empty(); }
+    void updateExecModeMcrtNodeInfo();
+    void updateNetIO(mcrt_dataio::SysUsage& sysUsage);
     void piggyBackStatsInfo(mcrt_dataio::SysUsage& sysUsage,
                             const mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
                             std::vector<std::string>& infoDataArray);
