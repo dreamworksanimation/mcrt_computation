@@ -842,8 +842,6 @@ RenderContextDriver::applyConfigOverrides()
     {    
         scene_rdl2::rdl2::SceneObject::UpdateGuard guard(&sceneVars);
 
-        sceneVars.set(scene_rdl2::rdl2::SceneVariables::sProgressiveKey, true);
-
         if (mNumMachinesOverride >= 0) {
             sceneVars.set(scene_rdl2::rdl2::SceneVariables::sNumMachines, mNumMachinesOverride);
         }
