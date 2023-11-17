@@ -87,7 +87,7 @@ public:
     const moonray::rndr::RenderOptions* renderOptions {nullptr};
     int numMachineOverride {-1}; // -1 skips value set
     int machineIdOverride {-1}; // -1 skips value set
-    float* fps {nullptr};
+    const float* fps {nullptr};
     McrtLogging* mcrtLogging {nullptr}; // all logging related task will skip when we set nullptr
     bool* mcrtDebugLogCreditUpdateMessage {nullptr};
     PackTilePrecisionMode precisionMode {PackTilePrecisionMode::AUTO16};
@@ -341,7 +341,7 @@ private:
     //
     int mNumMachinesOverride;
     int mMachineIdOverride; // machineId of this process
-    float* mFps {nullptr};
+    const float* mFps {nullptr};
 
     McrtLogging *mMcrtLogging; // McrtLogging pointer in order to update mode (debug/info/silent)
     bool* mMcrtDebugLogCreditUpdateMessage;
