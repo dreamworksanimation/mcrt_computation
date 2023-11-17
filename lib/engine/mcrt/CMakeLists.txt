@@ -24,6 +24,7 @@ target_sources(${component}
         RenderContextDriver_startStop.cc
         RenderContextDriverMaster.cc
         TimingRecorder.cc
+	Watcher.cc
 )
 
 set_property(TARGET ${component}

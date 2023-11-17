@@ -242,7 +242,7 @@ ProgMcrtComputation::configure(const std::string& op,
                        << "{trace:mcrt} version mcrt_computation-" << version
                        << " host " << mcrt_dataio::MiscUtil::getHostName());
 
-    mSysUsage.cpu();            // do initial call for CPU usage monitor
+    mSysUsage.getCpuUsage();  // do initial call for CPU usage monitor
 
     return arras4::api::Result::Success;
 }
@@ -264,6 +264,8 @@ ProgMcrtComputation::onStart()
 
     mRenderContextDriverMaster.reset(new RenderContextDriverMaster(mNumMachinesOverride,
                                                                    mMachineIdOverride,
+                                                                   mSysUsage,
+                                                                   mSendBandwidthTracker,
                                                                    &mLogging,
                                                                    &mLogDebug_creditUpdateMessage,
                                                                    mPackTilePrecisionMode,
@@ -272,6 +274,7 @@ ProgMcrtComputation::onStart()
     mRenderContextDriverMaster->
         addDriver(&mOptions,
                   &mRenderPrepCancel,
+                  &mFps,
                   [&]() {}, // PostMainCallBack function
                   [&](const bool reloadScn, const std::string& source) { // startFrameCallBack
                       sendProgressMessage("renderPrep", reloadScn ? "start" : "restart", source);
@@ -280,6 +283,11 @@ ProgMcrtComputation::onStart()
                   [&](const std::string& source) { // stopFrameCallBack
                       sendProgressMessage("shading", "stop", source);
                       if (mRecLoad) mRecLoad->stopLog(); // CPU load logger stop
+                  },
+                  [&](mcrt::ProgressiveFrame::Ptr msg, const std::string& source) { // sendInfoOnlyCallBack
+                      // send progressiveFrame message which only store statistical info
+                      send(msg, arras4::api::withSource(source));
+                      if (mCredit > 0) mCredit--;
                   }
                   ); // construct primary renderContextDriver
 
@@ -315,11 +323,7 @@ ProgMcrtComputation::onIdle()
     }
 
     if (mCredit != 0) {
-        driver->sendDelta(mSysUsage,
-                          mSendBandwidthTracker,
-                          // One of the following callback functions is used depending on the internal
-                          // condition.
-                          [&](mcrt::ProgressiveFrame::Ptr msg, const std::string& source) {
+        driver->sendDelta([&](mcrt::ProgressiveFrame::Ptr msg, const std::string& source) {
                               // send progressiveFrame message with delta image and statistical info
                               // and also send progress message
                               sendProgressMessageStageShading(msg->mHeader.mStatus,
@@ -332,11 +336,6 @@ ProgMcrtComputation::onIdle()
                               if (msg->mHeader.mStatus == mcrt::BaseFrame::Status::FINISHED) {
                                   if (mRecLoad) mRecLoad->stopLog(); // CPU load logger stop
                               }
-                          },
-                          [&](mcrt::ProgressiveFrame::Ptr msg, const std::string& source) {
-                              // send progressiveFrame message which only store statistical info
-                              send(msg, arras4::api::withSource(source));
-                              if (mCredit > 0) mCredit--;
                           });
     }
 

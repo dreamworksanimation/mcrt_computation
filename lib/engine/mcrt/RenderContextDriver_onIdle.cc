@@ -56,6 +56,7 @@ RenderContextDriver::isEnoughSendInterval(const float fps,
         double currentTime = scene_rdl2::util::getSeconds();
         if ((currentTime - mLastTimeOfEnoughIntervalForSend) >= (1.0f / fps)) {
             mLastTimeOfEnoughIntervalForSend = currentTime;
+            mLastTimeOfEnoughIntervalForHeartBeat = currentTime;
             return true;
         }
     }
@@ -63,11 +64,30 @@ RenderContextDriver::isEnoughSendInterval(const float fps,
     return false; // Interval-wise, we are not ready to send data
 }
 
+bool
+RenderContextDriver::isEnoughSendIntervalHeartBeat(const float checkFps)
+//
+// This function is executed by heart-beat thread
+//
+// checkFps indicates the interval of each heart-beat action interval.
+// For example, the interval is 41.666ms if checkFps is 24. (i.e. 41.666ms = 1.0sec / 24).
+//
+{
+    if (mLastTimeOfEnoughIntervalForHeartBeat == 0.0) {
+        // not set any data yet. In this case, we don't do anything.
+        return false;
+    }
+
+    double currentTime = scene_rdl2::util::getSeconds();
+    if ((currentTime - mLastTimeOfEnoughIntervalForHeartBeat) >= (1.0f / checkFps)) {    
+        mLastTimeOfEnoughIntervalForHeartBeat = currentTime;
+        return true;
+    }
+    return false; // Interval-wise, we are not ready to send data
+}
+
 void
-RenderContextDriver::sendDelta(mcrt_dataio::SysUsage& sysUsage,
-                               mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
-                               ProgressiveFrameSendCallBack callBackSend,
-                               ProgressiveFrameSendCallBack callBackInfoOnly)
+RenderContextDriver::sendDelta(ProgressiveFrameSendCallBack callBackSend)
 //
 // This function is executed by arras thread
 //    
@@ -81,33 +101,13 @@ RenderContextDriver::sendDelta(mcrt_dataio::SysUsage& sysUsage,
 {
     // First of all, encode McrtNodeInfo data for statistical info update by infoCodec
     std::vector<std::string> infoDataArray;
-    {
-        std::string infoData;
-        std::lock_guard<std::mutex> lock(mMutexMcrtNodeInfoMapItem);
-
-        if (sysUsage.isCpuUsageReady()) {
-            //
-            // update CPU/Memory usage info
-            //
-            mcrt_dataio::McrtNodeInfo &mcrtNodeInfo = mMcrtNodeInfoMapItem.getMcrtNodeInfo();
-            mcrtNodeInfo.setCpuUsage(sysUsage.cpu());
-            mcrtNodeInfo.setCoreUsage(sysUsage.getCoreUsage());
-            mcrtNodeInfo.setMemUsage(sysUsage.mem());
-
-            updateExecModeMcrtNodeInfo();
-            updateNetIO(sysUsage);
-        }
-
-        if (mMcrtNodeInfoMapItem.encode(infoData)) {
-            infoDataArray.push_back(std::move(infoData));
-        }
-    }
+    updateInfoData(infoDataArray);
 
     //------------------------------
 
     // Make sure we are able to do a snapshot of the frame buffer.
     bool isReadyToSnapshot =
-        (mRunState == RenderContextDriver::RunState::WAIT) && // renderPrep completed
+        mRenderPrepWatcher.isRunStateWait() && // renderPrep completed
         mRenderContext && 
         mRenderContext->isFrameReadyForDisplay() &&
         (mRenderContext->isFrameRendering() || mRenderContext->isFrameComplete() ||
@@ -157,8 +157,6 @@ RenderContextDriver::sendDelta(mcrt_dataio::SysUsage& sysUsage,
 
                     // Do snapshot and send to downstream by progressiveFrame message
                     if (sendProgressiveFrameMessage(!isMultiMachine(), // directoToClient
-                                                    sysUsage,
-                                                    sendBandwidthTracker,
                                                     infoDataArray,
                                                     callBackSend)) {
                         // sent FINISH condition last message.
@@ -178,17 +176,14 @@ RenderContextDriver::sendDelta(mcrt_dataio::SysUsage& sysUsage,
 
     if (!dataSendFlag && infoDataArray.size()) {
         // We have to send info only progressiveFrame message here
-        sendProgressiveFrameMessageInfoOnly(sysUsage,
-                                            sendBandwidthTracker,
-                                            infoDataArray,
-                                            callBackInfoOnly);
+        sendProgressiveFrameMessageInfoOnly(infoDataArray);
     }
 }
 
 void
 RenderContextDriver::applyUpdatesAndRestartRender(const GetTimingRecFrameCallBack& getTimingRecFrameCallBack)
 {
-    if (mRunState != RenderContextDriver::RunState::WAIT) {
+    if (!mRenderPrepWatcher.isRunStateWait()) {
         // We have to wait for the previous renderPrep should be completed.
         return;
     }
@@ -393,8 +388,6 @@ RenderContextDriver::isReadyToSend(const double now)
 
 bool
 RenderContextDriver::sendProgressiveFrameMessage(const bool directToClient,
-                                                 mcrt_dataio::SysUsage& sysUsage,
-                                                 mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
                                                  std::vector<std::string>& infoDataArray,
                                                  ProgressiveFrameSendCallBack callBackSend)
 //
@@ -406,12 +399,14 @@ RenderContextDriver::sendProgressiveFrameMessage(const bool directToClient,
 // include any frame buffer pixel information and is extremely small.
 //
 {
+    std::lock_guard<std::mutex> lock(mMutexSendAction);
+
     if (mTimingRecFrame) mTimingRecFrame->newSnapshotSendAction();
 
     scene_rdl2::rec_time::RecTime recTimeSnapshotToSend;
     recTimeSnapshotToSend.start(); // Measurement of elapsed time from snapshot to send.
 
-    piggyBackStatsInfo(sysUsage, sendBandwidthTracker, infoDataArray);
+    piggyBackStatsInfo(infoDataArray);
 
     //------------------------------
     //
@@ -588,17 +583,14 @@ RenderContextDriver::sendProgressiveFrameMessage(const bool directToClient,
 
     mOutputRatesFrameCount++; // update frame counter for output rates control
 
-    sendBandwidthTracker.set(dataSizeTotal);
+    mSendBandwidthTracker.set(dataSizeTotal);
     mSnapshotToSendTimeLog->add(recTimeSnapshotToSend.end());
 
     return sentLastData;
 }
 
 void
-RenderContextDriver::sendProgressiveFrameMessageInfoOnly(mcrt_dataio::SysUsage& sysUsage,
-                                                         mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
-                                                         std::vector<std::string>& infoDataArray,
-                                                         ProgressiveFrameSendCallBack callBackSend)
+RenderContextDriver::sendProgressiveFrameMessageInfoOnly(std::vector<std::string>& infoDataArray)
 //
 // This function is executed by arras thread
 //
@@ -610,7 +602,9 @@ RenderContextDriver::sendProgressiveFrameMessageInfoOnly(mcrt_dataio::SysUsage& 
         return;                 // early exit just in case
     }
 
-    piggyBackStatsInfo(sysUsage, sendBandwidthTracker, infoDataArray);
+    std::lock_guard<std::mutex> lock(mMutexSendAction);
+
+    piggyBackStatsInfo(infoDataArray);
 
     //------------------------------
 
@@ -642,11 +636,11 @@ RenderContextDriver::sendProgressiveFrameMessageInfoOnly(mcrt_dataio::SysUsage& 
 
     //------------------------------
 
-    callBackSend(frameMsg, mSource);
+    mSendInfoOnlyCallBack(frameMsg, mSource);
 
     //------------------------------
 
-    sendBandwidthTracker.set(dataSizeTotal);
+    mSendBandwidthTracker.set(dataSizeTotal);
 }
 
 float
@@ -687,6 +681,30 @@ RenderContextDriver::checkOutputRatesInterval(const std::string &name)
 }
 
 void
+RenderContextDriver::updateInfoData(std::vector<std::string>& infoDataArray)
+{
+    std::string infoData;
+    std::lock_guard<std::mutex> lock(mMutexMcrtNodeInfoMapItem);
+
+    if (mSysUsage.isCpuUsageReady()) {
+        //
+        // update CPU/Memory usage info
+        //
+        mcrt_dataio::McrtNodeInfo &mcrtNodeInfo = mMcrtNodeInfoMapItem.getMcrtNodeInfo();
+        mcrtNodeInfo.setCpuUsage(mSysUsage.getCpuUsage());
+        mcrtNodeInfo.setCoreUsage(mSysUsage.getCoreUsage());
+        mcrtNodeInfo.setMemUsage(mSysUsage.getMemUsage());
+
+        updateNetIO();
+        updateExecModeMcrtNodeInfo();
+    }
+
+    if (mMcrtNodeInfoMapItem.encode(infoData)) {
+        infoDataArray.push_back(std::move(infoData));
+    }
+}
+
+void
 RenderContextDriver::updateExecModeMcrtNodeInfo()
 {
     auto convertExecMode = [](const moonray::mcrt_common::ExecutionMode& execMode) {
@@ -710,19 +728,16 @@ RenderContextDriver::updateExecModeMcrtNodeInfo()
 }
 
 void
-RenderContextDriver::updateNetIO(mcrt_dataio::SysUsage& sysUsage)
+RenderContextDriver::updateNetIO()
 {
-    if (sysUsage.netIO()) { // update netIO info
-        mcrt_dataio::McrtNodeInfo &mcrtNodeInfo = mMcrtNodeInfoMapItem.getMcrtNodeInfo();
-        mcrtNodeInfo.setNetRecvBps(sysUsage.getNetRecv());
-        mcrtNodeInfo.setNetSendBps(sysUsage.getNetSend());
-    }
+    mSysUsage.updateNetIO(); // update netIO info
+    mcrt_dataio::McrtNodeInfo &mcrtNodeInfo = mMcrtNodeInfoMapItem.getMcrtNodeInfo();
+    mcrtNodeInfo.setNetRecvBps(mSysUsage.getNetRecv());
+    mcrtNodeInfo.setNetSendBps(mSysUsage.getNetSend());
 }
 
 void
-RenderContextDriver::piggyBackStatsInfo(mcrt_dataio::SysUsage& sysUsage,
-                                        const mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
-                                        std::vector<std::string>& infoDataArray)
+RenderContextDriver::piggyBackStatsInfo(std::vector<std::string>& infoDataArray)
 {
     if (mSnapshotToSendTimeLog->getTotal() > 24) {
         //
@@ -742,7 +757,7 @@ RenderContextDriver::piggyBackStatsInfo(mcrt_dataio::SysUsage& sysUsage,
         std::lock_guard<std::mutex> lock(mMutexMcrtNodeInfoMapItem);
         mcrt_dataio::McrtNodeInfo &mcrtNodeInfo = mMcrtNodeInfoMapItem.getMcrtNodeInfo();
         
-        float sendBps = sendBandwidthTracker.getBps(); // Byte/Sec
+        float sendBps = mSendBandwidthTracker.getBps(); // Byte/Sec
         mcrtNodeInfo.setSendBps(sendBps); // update outgoing bandwidth
 
         bool feedbackActive = mFeedbackActiveRuntime;

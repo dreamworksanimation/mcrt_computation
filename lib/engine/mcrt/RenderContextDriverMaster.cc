@@ -12,6 +12,8 @@ namespace mcrt_computation {
 
 RenderContextDriverMaster::RenderContextDriverMaster(int numMachineOverride,
                                                      int machineIdOverride,
+                                                     mcrt_dataio::SysUsage& sysUsage,
+                                                     mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
                                                      McrtLogging* mcrtLogging,
                                                      bool* mcrtDebugLogCreditUpdateMessage,
                                                      PackTilePrecisionMode packTilePrecisionMode,
@@ -19,12 +21,13 @@ RenderContextDriverMaster::RenderContextDriverMaster(int numMachineOverride,
                                                      mcrt_dataio::BandwidthTracker* recvFeedbackBandwidthTracker)
     : mNumMachineOverride(numMachineOverride)
     , mMachineIdOverride(machineIdOverride)
+    , mSysUsage {sysUsage}
+    , mSendBandwidthTracker {sendBandwidthTracker}
     , mMcrtLogging(mcrtLogging)
     , mMcrtDebugLogCreditUpdateMessage(mcrtDebugLogCreditUpdateMessage)
     , mPackTilePrecisionMode(packTilePrecisionMode)
     , mRecvFeedbackFpsTracker(recvFeedbackFpsTracker)
     , mRecvFeedbackBandwidthTracker(recvFeedbackBandwidthTracker)
-    , mLastDriverId(-1)
 {
     if (numMachineOverride > 1) {
         // If number of machines is fixed during the session (= current condition), this implementation
@@ -52,17 +55,22 @@ RenderContextDriverMaster::~RenderContextDriverMaster()
 }
 
 int
-RenderContextDriverMaster::addDriver(const moonray::rndr::RenderOptions *renderOptionsPtr,
-                                     std::atomic<bool> *renderPrepCancel,
-                                     const PostMainCallBack &postMainCallBack,
-                                     const StartFrameCallBack &startFrameCallBack,
-                                     const StopFrameCallBack &stopFrameCallBack)
+RenderContextDriverMaster::addDriver(const moonray::rndr::RenderOptions* renderOptionsPtr,
+                                     std::atomic<bool>* renderPrepCancel,
+                                     const float* fps,
+                                     const PostMainCallBack& postMainCallBack,
+                                     const StartFrameCallBack& startFrameCallBack,
+                                     const StopFrameCallBack& stopFrameCallBack,
+                                     const ProgressiveFrameSendCallBack& sendInfoOnlyCallBack)
 {
-    RenderContextDriverOptions options(postMainCallBack, startFrameCallBack, stopFrameCallBack);
+    RenderContextDriverOptions options(postMainCallBack, startFrameCallBack, stopFrameCallBack,
+                                       sendInfoOnlyCallBack,
+                                       mSysUsage, mSendBandwidthTracker);
     options.driverId = ++mLastDriverId;
     options.renderOptions = renderOptionsPtr;
     options.numMachineOverride = mNumMachineOverride;
     options.machineIdOverride = mMachineIdOverride;
+    options.fps = fps;
     options.mcrtLogging = mMcrtLogging;
     options.mcrtDebugLogCreditUpdateMessage = mMcrtDebugLogCreditUpdateMessage;
     options.precisionMode = mPackTilePrecisionMode;
@@ -70,21 +78,6 @@ RenderContextDriverMaster::addDriver(const moonray::rndr::RenderOptions *renderO
     options.recvFeedbackFpsTracker = mRecvFeedbackFpsTracker;
     options.recvFeedbackBandwidthTracker = mRecvFeedbackBandwidthTracker;
 
-    /*
-    RenderContextDriverUqPtr ptr(new RenderContextDriver(++mLastDriverId,
-                                                         renderOptionsPtr,
-                                                         mNumMachineOverride,
-                                                         mMachineIdOverride,
-                                                         mMcrtLogging,
-                                                         mMcrtDebugLogCreditUpdateMessage,
-                                                         mPackTilePrecisionMode,
-                                                         renderPrepCancel,
-                                                         postMainCallBack,
-                                                         startFrameCallBack,
-                                                         stopFrameCallBack,
-                                                         mRecvFeedbackFpsTracker,
-                                                         mRecvFeedbackBandwidthTracker));
-    */
     RenderContextDriverUqPtr ptr(new RenderContextDriver(options));
     mArray.push_back(std::move(ptr));
     return mArray.back()->getDriverId();

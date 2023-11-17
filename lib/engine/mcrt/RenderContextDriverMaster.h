@@ -35,6 +35,8 @@ class RenderContextDriverMaster
 public:
     using PackTilePrecisionMode = RenderContextDriver::PackTilePrecisionMode;
     using PostMainCallBack = std::function<void()>;
+    using ProgressiveFrameSendCallBack =
+        std::function<void(mcrt::ProgressiveFrame::Ptr msg, const std::string &source)>;
     using RenderContextDriverUqPtr = std::unique_ptr<RenderContextDriver>;
     using StartFrameCallBack = std::function<void(const bool reloadScn, const std::string &source)>;
     using StopFrameCallBack = std::function<void(const std::string &soruce)>;
@@ -45,6 +47,8 @@ public:
 
     RenderContextDriverMaster(int numMachineOverride,
                               int machineIdOverride,
+                              mcrt_dataio::SysUsage& sysUsage,
+                              mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
                               McrtLogging *mcrtLogging = nullptr,
                               bool* mcrtDebugLogCreditUpdateMessage = nullptr,
                               PackTilePrecisionMode precisionMode = PackTilePrecisionMode::AUTO16,
@@ -53,11 +57,13 @@ public:
     ~RenderContextDriverMaster(); // destroy all drivers
 
     // return newly created driver's driverId
-    int addDriver(const moonray::rndr::RenderOptions *renderOptionsPtr = nullptr,
-                  std::atomic<bool> *renderPrepCancel = nullptr,
-                  const PostMainCallBack &postMainCallBack = nullptr,
-                  const StartFrameCallBack &startFrameCallBack = nullptr,
-                  const StopFrameCallBack &stopFrameCallBack = nullptr);
+    int addDriver(const moonray::rndr::RenderOptions* renderOptionsPtr = nullptr,
+                  std::atomic<bool>* renderPrepCancel = nullptr,
+                  const float* fps = nullptr,
+                  const PostMainCallBack& postMainCallBack = nullptr,
+                  const StartFrameCallBack& startFrameCallBack = nullptr,
+                  const StopFrameCallBack& stopFrameCallBack = nullptr,
+                  const ProgressiveFrameSendCallBack& sendInfoOnlyCallBack = nullptr);
 
     bool rmDriver(const int driverId); // invalid driverId returns false. otherwise true
 
@@ -73,13 +79,15 @@ private:
 
     int mNumMachineOverride;
     int mMachineIdOverride;
+    mcrt_dataio::SysUsage& mSysUsage;
+    mcrt_dataio::BandwidthTracker& mSendBandwidthTracker;
     McrtLogging *mMcrtLogging;
     bool* mMcrtDebugLogCreditUpdateMessage;
     PackTilePrecisionMode mPackTilePrecisionMode;
     mcrt_dataio::FpsTracker* mRecvFeedbackFpsTracker;
     mcrt_dataio::BandwidthTracker* mRecvFeedbackBandwidthTracker;
 
-    int mLastDriverId;
+    int mLastDriverId {-1};
     std::vector<RenderContextDriverUqPtr> mArray;
 };
 

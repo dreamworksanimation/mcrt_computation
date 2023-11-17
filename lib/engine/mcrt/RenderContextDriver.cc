@@ -22,13 +22,17 @@ RenderContextDriver::RenderContextDriver(const RenderContextDriverOptions& optio
     : mDriverId(options.driverId)
     , mNumMachinesOverride(options.numMachineOverride)
     , mMachineIdOverride(options.machineIdOverride)
+    , mFps {options.fps}
     , mMcrtLogging(options.mcrtLogging)
     , mMcrtDebugLogCreditUpdateMessage(options.mcrtDebugLogCreditUpdateMessage)
     , mRenderPrepCancel(options.renderPrepCancel)
-    , mPostMainCallBack(options.postMainCallBack)
-    , mStartFrameCallBack(options.startFrameCallBack)
-    , mStopFrameCallBack(options.stopFrameCallBack)
+    , mPostRenderPrepMainCallBack {options.postRenderPrepMainCallBack}
+    , mStartFrameCallBack {options.startFrameCallBack}
+    , mStopFrameCallBack {options.stopFrameCallBack}
+    , mSendInfoOnlyCallBack {options.sendInfoOnlyCallBack}
+    , mSysUsage {options.sysUsage}
     , mPackTilePrecisionMode(options.precisionMode)
+    , mSendBandwidthTracker {options.sendBandwidthTracker}
     , mRecvFeedbackFpsTracker(options.recvFeedbackFpsTracker)
     , mRecvFeedbackBandwidthTracker(options.recvFeedbackBandwidthTracker)
     , mMcrtLoggingInfo((options.mcrtLogging) ? options.mcrtLogging->isEnableInfo() : false)
@@ -43,9 +47,9 @@ RenderContextDriver::RenderContextDriver(const RenderContextDriverOptions& optio
     mFbSender.setMachineId(mMachineIdOverride);
 
     mMcrtNodeInfoMapItem.getMcrtNodeInfo().setHostName(mcrt_dataio::MiscUtil::getHostName());
-    mMcrtNodeInfoMapItem.getMcrtNodeInfo().setCpuTotal(mcrt_dataio::SysUsage::cpuTotal());
+    mMcrtNodeInfoMapItem.getMcrtNodeInfo().setCpuTotal(mcrt_dataio::SysUsage::getCpuTotal());
     mMcrtNodeInfoMapItem.getMcrtNodeInfo().setAssignedCpuTotal(mRenderOptions.getThreads());
-    mMcrtNodeInfoMapItem.getMcrtNodeInfo().setMemTotal(mcrt_dataio::SysUsage::memTotal());
+    mMcrtNodeInfoMapItem.getMcrtNodeInfo().setMemTotal(mcrt_dataio::SysUsage::getMemTotal());
     mMcrtNodeInfoMapItem.getMcrtNodeInfo().setMachineId(mMachineIdOverride);
 
 #   ifdef DEBUG_FEEDBACK
@@ -57,25 +61,27 @@ RenderContextDriver::RenderContextDriver(const RenderContextDriverOptions& optio
 
     //------------------------------
 
-    mThread = std::move(std::thread(threadMain, this));
+    mRenderPrepWatcher.boot(Watcher::RunMode::STOP_AND_GO, &mRenderPrepWatcher,
+                            [&]() {
+                                if (renderPrepMain()) {
+                                    if (mPostRenderPrepMainCallBack) {
+                                        mPostRenderPrepMainCallBack();
+                                    }
+                                }
+                            });
 
-    // Wait until thread is booted
-    std::unique_lock<std::mutex> uqLock(mMutexBoot);
-    mCvBoot.wait(uqLock, [&]{
-            return (mThreadState == ThreadState::IDLE); // Not wait if state is IDLE condition
-        });
+    mHeartBeatWatcher.boot(Watcher::RunMode::NON_STOP, &mHeartBeatWatcher,
+                           [&]() {
+                               heartBeatMain();
+                           });
 }
 
 RenderContextDriver::~RenderContextDriver()
 {
-    mThreadShutdown = true; // This is a only place set true to mThreadShutdown
-
-    mRunState = RunState::START;
-    mCvRun.notify_one(); // notify to RenderContextDriver threadMain loop
-    
-    if (mThread.joinable()) {
-        mThread.join();
-    }
+    // In order to avoid unexpected sendInfoOnly actions, it would be better
+    // if we shut down heartBeatWatcher first.
+    mHeartBeatWatcher.shutDown();
+    mRenderPrepWatcher.shutDown();
 }
 
 void
@@ -87,8 +93,7 @@ RenderContextDriver::start()
     // need to stop renderDriver here.
     // we have to stop MCRT stage or RenderPrep here if it is running
 
-    mRunState = RunState::START;
-    mCvRun.notify_one(); // notify to RenderContextDriver threadMain loop
+    mRenderPrepWatcher.resume();
 }
 
 //------------------------------------------------------------------------------------------
@@ -99,9 +104,8 @@ RenderContextDriver::show() const
     std::ostringstream ostr;
     ostr << "RenderContextDriver {\n"
          << "  mDriverId:" << mDriverId << '\n'
-         << "  mThreadState:" << showThreadState(mThreadState) << '\n'
-         << "  mRunState:" << showRunState(mRunState) << '\n'
-         << "  mThreadShutdown:" << ((mThreadShutdown) ? "true" : "false") << '\n'
+         << scene_rdl2::str_util::addIndent("mRenderPrepWatcher " + mRenderPrepWatcher.show()) << '\n'
+         << scene_rdl2::str_util::addIndent("mHeartBeatWatcher " + mHeartBeatWatcher.show()) << '\n'
          << "}";
     return ostr.str();
 }
@@ -155,43 +159,8 @@ RenderContextDriver::updateSceneContextBackup(scene_rdl2::rdl2::SceneContext *sc
     
 //------------------------------------------------------------------------------------------    
 
-// static function
-void
-RenderContextDriver::threadMain(RenderContextDriver *driver)
-{
-    // First of all change thread's threadState condition and do notify_one to caller
-    driver->mThreadState = ThreadState::IDLE;
-    driver->mCvBoot.notify_one(); // notify to RenderContextDriver's constructor
-
-    while (true) {
-        {
-            std::unique_lock<std::mutex> uqLock(driver->mMutexRun);
-            driver->mCvRun.wait(uqLock, [&]{
-                    return (driver->mRunState == RunState::START); // Not wait if state is START
-                });
-        }
-
-        if (driver->mThreadShutdown) { // before exit test
-            break;
-        }
-
-        driver->mThreadState = ThreadState::BUSY;
-        if (driver->main()) { // main function of renderContextDriver thread
-            if (driver->mPostMainCallBack) {
-                driver->mPostMainCallBack();
-            }                
-        }
-        driver->mThreadState = ThreadState::IDLE;
-        driver->mRunState = RunState::WAIT;
-
-        if (driver->mThreadShutdown) { // after exit test
-            break;
-        }
-    }
-}
-
 bool
-RenderContextDriver::main()
+RenderContextDriver::renderPrepMain()
 {
     MNRY_ASSERT(mRenderContext && "RenderContextDriver::main() can not run without renderContext");
 
@@ -256,37 +225,35 @@ RenderContextDriver::main()
 }
 
 void
+RenderContextDriver::heartBeatMain()
+{
+    float checkFps = (*mFps) * 0.5f; // try to check by half fps interval. i.e. 2x longer interval
+    if (isEnoughSendIntervalHeartBeat(checkFps)) {
+        std::cerr << ">> RenderContextDriver.cc heartBeatMain() need to send info\n";
+
+        // First of all, encode McrtNodeInfo data for statistical info update by infoCodec
+        std::vector<std::string> infoDataArray;
+        updateInfoData(infoDataArray);
+
+        if (infoDataArray.size()) {
+            // We have to send info only progressiveFrame message here
+            sendProgressiveFrameMessageInfoOnly(infoDataArray);
+        }
+    }
+
+    float sleepIntervalMicroSec = (1.0f / checkFps) * 1000000.0f;
+    usleep(static_cast<useconds_t>(sleepIntervalMicroSec));
+
+    // mHeartBeatWatcher immediately executes this function again after finishing this function.
+}
+
+void
 RenderContextDriver::showMsg(const std::string &msg, bool cerrOut)
 {
     mMcrtNodeInfoMapItem.getMcrtNodeInfo().enqGenericComment(msg);
     if (cerrOut) {
         std::cerr << msg;
     }
-}
-
-// static function
-std::string
-RenderContextDriver::showThreadState(const ThreadState &state)
-{
-    switch (state) {
-    case ThreadState::INIT : return "INIT";
-    case ThreadState::IDLE : return "IDLE";
-    case ThreadState::BUSY : return "BUSY";
-    default : break;
-    }
-    return "?";
-}
-
-// static function    
-std::string
-RenderContextDriver::showRunState(const RunState &state)
-{
-    switch (state) {
-    case RunState::WAIT : return "WAIT";
-    case RunState::START : return "START";
-    default : break;
-    }
-    return "?";
 }
 
 std::string

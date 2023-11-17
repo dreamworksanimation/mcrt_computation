@@ -44,7 +44,9 @@ COMPUTATION_CREATOR(ProgMcrtMergeComputation);
 ProgMcrtMergeComputation::ProgMcrtMergeComputation(arras4::api::ComputationEnvironment* env)
     : Computation(env)
     , mMsgSendHandler(std::make_shared<mcrt_dataio::MsgSendHandler>())
-    , mGlobalNodeInfo(false, mMsgSendHandler) // decodeOnly = false
+    , mGlobalNodeInfo(/* decodeOnly = */ false,
+                      /* valueKeepDurationSec = */ 0.0f,
+                      mMsgSendHandler)
 {
 #   ifdef USE_RAAS_DEBUG_FILENAME
     char* delayFilename = getenv("RAAS_DEBUG_FILENAME");
@@ -75,7 +77,7 @@ arras4::api::Result
 ProgMcrtMergeComputation::configure(const std::string& op,
                                     arras4::api::ObjectConstRef& aConfig)
 {
-    mSysUsage.cpu();            // do initial call for CPU usage monitor
+    mSysUsage.getCpuUsage();            // do initial call for CPU usage monitor
 
     if (op == "start") {
         onStart();
@@ -162,8 +164,9 @@ ProgMcrtMergeComputation::onStart()
         mGlobalNodeInfo.setMergeHostName(mcrt_dataio::MiscUtil::getHostName());
         mGlobalNodeInfo.setMergeClockDeltaSvrPort(20202); // hard coded port number
         mGlobalNodeInfo.setMergeClockDeltaSvrPath("/tmp/progmcrt_merge.ipc");
-        mGlobalNodeInfo.setMergeCpuTotal(mcrt_dataio::SysUsage::cpuTotal());
-        mGlobalNodeInfo.setMergeMemTotal(mcrt_dataio::SysUsage::memTotal());
+        mGlobalNodeInfo.setMergeMcrtTotal(mNumMachines);
+        mGlobalNodeInfo.setMergeCpuTotal(mcrt_dataio::SysUsage::getCpuTotal());
+        mGlobalNodeInfo.setMergeMemTotal(mcrt_dataio::SysUsage::getMemTotal());
     }
     mFbMsgMultiFrames.reset(new mcrt_dataio::FbMsgMultiFrames(&mGlobalNodeInfo, &mFeedbackActive));
     mFbMsgMultiFrames->setTunnelMachineIdInfo(&mTunnelMachineId);
@@ -229,9 +232,9 @@ ProgMcrtMergeComputation::onIdle()
                 //
                 // update CPU/Memory usage info
                 //
-                mGlobalNodeInfo.setMergeCpuUsage(mSysUsage.cpu());
+                mGlobalNodeInfo.setMergeCpuUsage(mSysUsage.getCpuUsage());
                 mGlobalNodeInfo.setMergeCoreUsage(mSysUsage.getCoreUsage());
-                mGlobalNodeInfo.setMergeMemUsage(mSysUsage.mem());
+                mGlobalNodeInfo.setMergeMemUsage(mSysUsage.getMemUsage());
 
                 updateNetIO();
             }
@@ -970,7 +973,7 @@ ProgMcrtMergeComputation::processFeedback()
 void
 ProgMcrtMergeComputation::updateNetIO()
 {
-    if (mSysUsage.netIO()) { // update netIO info
+    if (mSysUsage.updateNetIO()) { // update netIO info
         mGlobalNodeInfo.setMergeNetRecvBps(mSysUsage.getNetRecv());
         mGlobalNodeInfo.setMergeNetSendBps(mSysUsage.getNetSend());
     }
@@ -1112,6 +1115,8 @@ ProgMcrtMergeComputation::parserConfigureDebugCommand()
                [&](Arg& arg) -> bool {
                    return mFbMsgMultiFrames->getDisplayFbMsgSingleFrame()->getParser().main(arg.childArg());
                });
+    parser.opt("numMachines", "", "show numMachines count",
+               [&](Arg& arg) { return arg.msg(std::to_string(mNumMachines) + '\n'); });
 }
 
 void

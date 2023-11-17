@@ -7,6 +7,7 @@
 #include "McrtUpdate.h"
 #include "MessageHistory.h"
 #include "TimingRecorder.h"
+#include "Watcher.h"
 
 #include <mcrt_dataio/engine/mcrt/McrtNodeInfoMapItem.h>
 #include <mcrt_dataio/engine/merger/FbMsgMultiChans.h>
@@ -62,31 +63,43 @@ class RenderContextDriverOptions
 {
 public:
     using PackTilePrecisionMode = moonray::engine_tool::McrtFbSender::PrecisionControl;
-    using PostMainCallBack = std::function<void()>;
+    using PostRenderPrepMainCallBack = std::function<void()>;
+    using ProgressiveFrameSendCallBack =
+        std::function<void(mcrt::ProgressiveFrame::Ptr msg, const std::string &source)>;
     using StartFrameCallBack = std::function<void(const bool reloadScn, const std::string &source)>;
     using StopFrameCallBack = std::function<void(const std::string &soruce)>;
 
-    RenderContextDriverOptions(const PostMainCallBack& argPostMainCallBack,
+    RenderContextDriverOptions(const PostRenderPrepMainCallBack& argPostRenderPrepMainCallBack,
                                const StartFrameCallBack& argStartFrameCallBack,
-                               const StopFrameCallBack& argStopFrameCallBack)
-        : postMainCallBack(argPostMainCallBack)
-        , startFrameCallBack(argStartFrameCallBack)
-        , stopFrameCallBack(argStopFrameCallBack)
+                               const StopFrameCallBack& argStopFrameCallBack,
+                               const ProgressiveFrameSendCallBack& argSendInfoOnlyCallBack,
+                               mcrt_dataio::SysUsage& argSysUsage,
+                               mcrt_dataio::BandwidthTracker& argSendBandwidthTracker)
+        : postRenderPrepMainCallBack {argPostRenderPrepMainCallBack}
+        , startFrameCallBack {argStartFrameCallBack}
+        , stopFrameCallBack {argStopFrameCallBack}
+        , sendInfoOnlyCallBack {argSendInfoOnlyCallBack}
+        , sysUsage {argSysUsage}
+        , sendBandwidthTracker {argSendBandwidthTracker}
     {}
 
     int driverId {0};
     const moonray::rndr::RenderOptions* renderOptions {nullptr};
     int numMachineOverride {-1}; // -1 skips value set
     int machineIdOverride {-1}; // -1 skips value set
+    float* fps {nullptr};
     McrtLogging* mcrtLogging {nullptr}; // all logging related task will skip when we set nullptr
     bool* mcrtDebugLogCreditUpdateMessage {nullptr};
     PackTilePrecisionMode precisionMode {PackTilePrecisionMode::AUTO16};
     std::atomic<bool>* renderPrepCancel {nullptr};
-    const PostMainCallBack& postMainCallBack {nullptr};
+    const PostRenderPrepMainCallBack& postRenderPrepMainCallBack {nullptr};
     const StartFrameCallBack& startFrameCallBack {nullptr};
     const StopFrameCallBack& stopFrameCallBack {nullptr};
+    const ProgressiveFrameSendCallBack& sendInfoOnlyCallBack {nullptr};
     mcrt_dataio::FpsTracker* recvFeedbackFpsTracker {nullptr};
     mcrt_dataio::BandwidthTracker* recvFeedbackBandwidthTracker {nullptr};
+    mcrt_dataio::SysUsage& sysUsage;
+    mcrt_dataio::BandwidthTracker& sendBandwidthTracker;
 };
 
 class RenderContextDriver
@@ -147,9 +160,6 @@ public:
     using StopFrameCallBack = std::function<void(const std::string &soruce)>;
     using GetTimingRecFrameCallBack = std::function<TimingRecorder::TimingRecorderSingleFrameShPtr()>;
 
-    enum class RunState : int { WAIT, START };
-    enum class ThreadState : int { INIT, IDLE, BUSY };
-
     // Non-copyable
     RenderContextDriver &operator =(const RenderContextDriver) = delete;
     RenderContextDriver(const RenderContextDriver &) = delete;
@@ -158,7 +168,6 @@ public:
     ~RenderContextDriver();
 
     int getDriverId() const { return mDriverId; }
-    RunState getThreadRunState() const { return mRunState; } // only used by arras main thread
 
     void start(); // start renderContextDriver main function. should be public for testing purpose
     
@@ -203,11 +212,9 @@ public:
     // onIdle related API
     //
     bool isEnoughSendInterval(const float fps, const bool dispatchGatesFrame);
+    bool isEnoughSendIntervalHeartBeat(const float checkFps);
 
-    void sendDelta(mcrt_dataio::SysUsage& sysUsage,
-                   mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
-                   ProgressiveFrameSendCallBack callBackSend,
-                   ProgressiveFrameSendCallBack callBackInfoOnly);
+    void sendDelta(ProgressiveFrameSendCallBack callBackSend);
 
     void applyUpdatesAndRestartRender(const GetTimingRecFrameCallBack& getTimingRecFrameCallBack);
 
@@ -232,13 +239,10 @@ private:
     static void updateSceneContextBackup(scene_rdl2::rdl2::SceneContext *sceneContext,
                                          const std::string &manifest, const std::string &payload);
 
-    static void threadMain(RenderContextDriver *thread);
-    bool main();                // return true:OK false:canceled
+    bool renderPrepMain();      // return true:OK false:canceled
+    void heartBeatMain();
 
     void showMsg(const std::string &msg, bool cerrOut = true);
-
-    static std::string showThreadState(const ThreadState &state);
-    static std::string showRunState(const RunState &state);
 
     std::string showInitFrameControlStat() const;
     std::string showMultiBankControlStat() const;
@@ -295,25 +299,19 @@ private:
     // return true : send FINISHED condition progressive message
     //        false : send non-FINISHED condition progressive message
     bool sendProgressiveFrameMessage(const bool directToClient,
-                                     mcrt_dataio::SysUsage& sysUsage,
-                                     mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
                                      std::vector<std::string>& infoDataArray,
-                                     ProgressiveFrameSendCallBack callBackSend);
-    void sendProgressiveFrameMessageInfoOnly(mcrt_dataio::SysUsage& sysUsage,
-                                             mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
-                                             std::vector<std::string>& infoDataArray,
-                                             ProgressiveFrameSendCallBack callBackSend);
+                                     ProgressiveFrameSendCallBack callBackSend); // MTsafe
+    void sendProgressiveFrameMessageInfoOnly(std::vector<std::string>& infoDataArray); // MTsafe 
 
     float getRenderProgress();
     float getGlobalRenderProgress();
     bool checkOutputRatesInterval(const std::string &name);
     bool isMultiMachine() const { return mNumMachinesOverride > 1; }
     bool haveUpdates() const { return (mGeometryUpdate != nullptr) || !mMcrtUpdates.empty(); }
+    void updateInfoData(std::vector<std::string>& infoDataArray);
     void updateExecModeMcrtNodeInfo();
-    void updateNetIO(mcrt_dataio::SysUsage& sysUsage);
-    void piggyBackStatsInfo(mcrt_dataio::SysUsage& sysUsage,
-                            const mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
-                            std::vector<std::string>& infoDataArray);
+    void updateNetIO();
+    void piggyBackStatsInfo(std::vector<std::string>& infoDataArray);
     void piggyBackTimingRec(std::vector<std::string>& infoDataArray);
     mcrt::BaseFrame::ImageEncoding encoTypeConvert(EncodingType enco) const;
     void applyConfigOverrides();
@@ -328,20 +326,14 @@ private:
     void constructFeedbackMinusOne();
 
     //------------------------------
+    //------------------------------
     //
     // RenderContextDriver thread control related members
     //
     int mDriverId;
-    std::thread mThread;
-    tbb::atomic<ThreadState> mThreadState {ThreadState::INIT};
-    tbb::atomic<RunState> mRunState {RunState::WAIT};
-    bool mThreadShutdown {false}; 
 
-    mutable std::mutex mMutexBoot;
-    std::condition_variable mCvBoot; // using at boot threadMain sequence
-
-    mutable std::mutex mMutexRun;
-    std::condition_variable mCvRun; // using at run threadMain 
+    Watcher mRenderPrepWatcher;
+    Watcher mHeartBeatWatcher;
 
     //------------------------------
     //
@@ -349,14 +341,18 @@ private:
     //
     int mNumMachinesOverride;
     int mMachineIdOverride; // machineId of this process
+    float* mFps {nullptr};
 
     McrtLogging *mMcrtLogging; // McrtLogging pointer in order to update mode (debug/info/silent)
     bool* mMcrtDebugLogCreditUpdateMessage;
 
     std::atomic<bool> *mRenderPrepCancel; // renderPrep cancel condition flag address
-    PostMainCallBack mPostMainCallBack; // call back function which is executed after main()
+    PostMainCallBack mPostRenderPrepMainCallBack; // call back function which is executed after main()
     StartFrameCallBack mStartFrameCallBack; // call back function which is called just before startFrame()
     StopFrameCallBack mStopFrameCallBack; // call back function which is called just after stopFrame()
+    ProgressiveFrameSendCallBack mSendInfoOnlyCallBack; // call back func for sendInfoOnly
+
+    mcrt_dataio::SysUsage& mSysUsage;
 
     PackTilePrecisionMode mPackTilePrecisionMode;
 
@@ -417,6 +413,7 @@ private:
     RP_RESULT mLastTimeRenderPrepResult {RP_RESULT::FINISHED};
 
     double mLastTimeOfEnoughIntervalForSend {0.0}; // last timing when it passed enough interval for send action
+    double mLastTimeOfEnoughIntervalForHeartBeat {0.0}; // Same as above but this is regarding the heartbeat thread
 
     int mLastSnapshotFilmActivity {0}; // film activity value of last snapshot, reset to 0 when restart render
 
@@ -448,6 +445,7 @@ private:
     mcrt_dataio::FloatValueTracker mFeedbackEvalLog {10}; // unit is millisec : keepEventTotal = 10
     mcrt_dataio::FloatValueTracker mFeedbackLatency {10}; // unit is millisec : keepEventTotal = 10
 
+    mcrt_dataio::BandwidthTracker& mSendBandwidthTracker;
     mcrt_dataio::FpsTracker* mRecvFeedbackFpsTracker;
     mcrt_dataio::BandwidthTracker* mRecvFeedbackBandwidthTracker;
 
@@ -466,6 +464,7 @@ private:
 
     //------------------------------
 
+    std::mutex mMutexSendAction; // mutex for send action
     std::mutex mMutexMcrtNodeInfoMapItem; // mutex for mMcrtNodeInfoMapItem access
     mcrt_dataio::McrtNodeInfoMapItem mMcrtNodeInfoMapItem;
 };
