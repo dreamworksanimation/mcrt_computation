@@ -8,12 +8,11 @@
 #include <mcrt_dataio/share/sock/SockServer.h>
 #include <mcrt_dataio/share/sock/SockServerConnection.h>
 
-#include <tbb/atomic.h>
-
 #include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <atomic>
 
 namespace mcrt_computation {
 
@@ -52,8 +51,8 @@ private:
 
     std::thread mServerThread;
     std::thread mWorkerThread;  // single worker
-    tbb::atomic<ThreadState> mServerThreadState;
-    tbb::atomic<ThreadState> mWorkerThreadState;
+    std::atomic<ThreadState> mServerThreadState;
+    std::atomic<ThreadState> mWorkerThreadState;
     bool mThreadShutdown;
 
     mutable std::mutex mMutex;
