@@ -5,6 +5,7 @@
 #include "Watcher.h"
 
 #include <condition_variable>
+#include <vector>
 
 namespace moonray {
 namespace rndr {
