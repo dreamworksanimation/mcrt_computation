@@ -4,6 +4,7 @@
 #include "RenderContextDriver.h"
 
 #include <arras4_log/Logger.h> // ARRAS_LOG_INFO
+#include <mcrt_computation/common/mcrt_logging/TimeStampDebugMsg.h>
 #include <mcrt_dataio/share/util/BandwidthTracker.h>
 #include <mcrt_dataio/share/util/FpsTracker.h>
 #include <mcrt_dataio/share/util/SysUsage.h>
@@ -204,6 +205,8 @@ RenderContextDriver::applyUpdatesAndRestartRender(const GetTimingRecFrameCallBac
 
     //------------------------------
 
+    McrtTimeStamp("onIdle/applyUpdateAndRestartRender() {", "start applyUpdate and restart render");
+
 #   ifdef DEBUG_MSG_START_NEWFRAME
     std::cerr << ">> RenderContextDriver_onIdle.cc ===>>> applyUpdatesAndRestartRender() <<<===\n";
 #   endif // end DEBUG_MSG_START_NEWFRAME
@@ -214,6 +217,8 @@ RenderContextDriver::applyUpdatesAndRestartRender(const GetTimingRecFrameCallBac
     mTimingRecFrame = (getTimingRecFrameCallBack) ? getTimingRecFrameCallBack() : nullptr;
 
     if (!mMcrtUpdates.empty()) {
+        McrtTimeStamp("McrtUpdate partA {", "start partA");
+
         // clean up redundant unnecessary messages
         if (!preprocessQueuedMessage()) { 
             // We don't have forceReload message, so we have to consider previous renderPrep cancel codition
@@ -222,6 +227,12 @@ RenderContextDriver::applyUpdatesAndRestartRender(const GetTimingRecFrameCallBac
                 reconstructSceneFromBackup();
                 showMsg("reconstruct sceneContext by backup\n");
             }
+        }
+
+        {
+            std::ostringstream ostr;
+            ostr << "start update size:" << mMcrtUpdates.size();
+            McrtTimeStamp("McrtUpdate updateMainLoop {", ostr.str());
         }
 
         // Apply all the updates here
@@ -242,20 +253,30 @@ RenderContextDriver::applyUpdatesAndRestartRender(const GetTimingRecFrameCallBac
             (**itr)();               // process update data
         }
 
+        McrtTimeStamp("McrtUpdate updateMainLoop }", "finish update");
+
         if (mTimingRecFrame) {
             mTimingRecFrame->setMsgTimingRange(totalMsg, oldestRecvTime, newestRecvTime);
         }
 
-        // Make sure our updates didn't trample our overrides
-        applyConfigOverrides(); // need applyConfigOverride before start render
-        mMcrtUpdates.clear();
+        McrtTimeStamp("McrtUpdate applyConfigOverrides {", "start applyConfigOverrides");
+        {
+            // Make sure our updates didn't trample our overrides
+            applyConfigOverrides(); // need applyConfigOverride before start render
+            mMcrtUpdates.clear();
+        }
+        McrtTimeStamp("McrtUpdate applyConfigOverrides }", "finish applyConfigOverrides");
 
         // There is some possibility to be updated renderContext address by rdlMessage forceReload condition.
         // We update renderContext address just in case.
         renderContext = getRenderContext();
+
+        McrtTimeStamp("McrtUpdate partA }", "finish partA");
     }
 
     if (renderContext->isInitialized()) {
+        McrtTimeStamp("McrtUpdate partB {", "start partB");
+
         // Apply geometry updates.
         if (mGeometryUpdate) {
             uint32_t currSyncId = mGeometryUpdate->mFrame;
@@ -283,7 +304,11 @@ RenderContextDriver::applyUpdatesAndRestartRender(const GetTimingRecFrameCallBac
         mSnapshotId = 0;        // initialize snapshot id
 
         mMessageHistory.newFrame();
+
+        McrtTimeStamp("McrtUpdate partB }", "finish partB");
     }
+
+    McrtTimeStamp("onIdle/applyUpdateAndRestartRender() }", "finish applyUpdate and restart render");
 }
 
 //------------------------------------------------------------------------------------------

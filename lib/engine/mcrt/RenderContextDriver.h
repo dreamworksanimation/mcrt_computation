@@ -56,6 +56,7 @@ namespace rec_time {
 namespace mcrt_computation {
 
 class McrtLogging;
+class RenderContextDestructionManager;
 
 class RenderContextDriverOptions
 //
@@ -165,7 +166,8 @@ public:
     RenderContextDriver &operator =(const RenderContextDriver) = delete;
     RenderContextDriver(const RenderContextDriver &) = delete;
 
-    explicit RenderContextDriver(const RenderContextDriverOptions& options);
+    RenderContextDriver(const RenderContextDriverOptions& options,
+                        RenderContextDestructionManager* renderContextDestructionManager);
     ~RenderContextDriver();
 
     int getDriverId() const { return mDriverId; }
@@ -362,7 +364,9 @@ private:
     // Moonray related data
     //
     moonray::rndr::RenderOptions mRenderOptions;
-    std::unique_ptr<moonray::rndr::RenderContext> mRenderContext {nullptr};
+    moonray::rndr::RenderContext* mRenderContext {nullptr}; // We manage this pointer by ourselves and
+                                                            // not use a smart pointer here.
+    RenderContextDestructionManager* mRenderContextDestructionManager;
     std::unique_ptr<scene_rdl2::rdl2::SceneContext> mSceneContextBackup {nullptr};
 
     moonray::engine_tool::McrtFbSender mFbSender;

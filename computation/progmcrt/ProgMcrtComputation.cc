@@ -4,6 +4,7 @@
 #include "ProgMcrtComputation.h"
 
 #include <arras4_log/LogEventStream.h>
+#include <mcrt_computation/common/mcrt_logging/TimeStampDebugMsg.h>
 #include <mcrt_computation/engine/mcrt/RenderContextDriver.h>
 #include <mcrt_dataio/engine/mcrt/McrtControl.h>
 #include <mcrt_messages/CreditUpdate.h>
@@ -263,16 +264,16 @@ ProgMcrtComputation::onStart()
     // intend to call RenderContext::startFrame from.
     moonray::rndr::initGlobalDriver(mOptions);
 
-    mRenderContextDriverMaster.reset(new RenderContextDriverMaster(mNumMachinesOverride,
-                                                                   mMachineIdOverride,
-                                                                   mSysUsage,
-                                                                   mSendBandwidthTracker,
-                                                                   &mLogging,
-                                                                   &mLogDebug_creditUpdateMessage,
-                                                                   mPackTilePrecisionMode,
-                                                                   &mRecvFeedbackFpsTracker,
-                                                                   &mRecvFeedbackBandwidthTracker));
-    mRenderContextDriverMaster->
+    mRenderContextDriverManager.reset(new RenderContextDriverManager(mNumMachinesOverride,
+                                                                     mMachineIdOverride,
+                                                                     mSysUsage,
+                                                                     mSendBandwidthTracker,
+                                                                     &mLogging,
+                                                                     &mLogDebug_creditUpdateMessage,
+                                                                     mPackTilePrecisionMode,
+                                                                     &mRecvFeedbackFpsTracker,
+                                                                     &mRecvFeedbackBandwidthTracker));
+    mRenderContextDriverManager->
         addDriver(&mOptions,
                   &mRenderPrepCancel,
                   &mFps,
@@ -303,7 +304,7 @@ void
 ProgMcrtComputation::onStop()
 {
     // Shutdown the renderer
-    mRenderContextDriverMaster = nullptr;
+    mRenderContextDriverManager = nullptr;
 
     moonray::rndr::cleanUpGlobalDriver();
 
@@ -316,9 +317,9 @@ ProgMcrtComputation::onStop()
 void
 ProgMcrtComputation::onIdle()
 {
-    // RenderContextDriverMaster can support multiple renderContextDriver. However at this moment,
+    // RenderContextDriverManager can support multiple renderContextDriver. However at this moment,
     // we only use primary renderContextDriver (i.e. driverId = 0).
-    RenderContextDriver* driver = mRenderContextDriverMaster->getDriver(0);
+    RenderContextDriver* driver = mRenderContextDriverManager->getDriver(0);
     if (!driver->isEnoughSendInterval(mFps, mDispatchGatesFrame)) {
         return; // Interval-wise, we are not ready to send data
     }
@@ -423,24 +424,31 @@ ProgMcrtComputation::onMessage(const arras4::api::Message& aMsg)
         return arras4::api::Result::Success;
     }
 
-    // RenderContextDriverMaster can support multiple renderContextDriver in order to quickly
+    // RenderContextDriverManager can support multiple renderContextDriver in order to quickly
     // test multi-renderContext driver configuration for the future plan. However at this moment,
     // we only use primary renderContextDriver (i.e. driverId = 0).
-    RenderContextDriver* driver = mRenderContextDriverMaster->getDriver(0);
+    RenderContextDriver* driver = mRenderContextDriverManager->getDriver(0);
     if (aMsg.classId() == mcrt::GeometryData::ID) {
+        McrtTimeStamp("onMessage/GeometryData {", "start onMessage/GeometryData");
         driver->enqGeometryMessage(aMsg);
+        McrtTimeStamp("onMessage/GeometryData }", "finish onMessage/GeometryData");
     } else if (aMsg.classId() == mcrt::RDLMessage::ID) {
+        McrtTimeStamp("onMessage/RDLMessage {", "start onMessage/RDLMessage");
         driver->enqRdlMessage(aMsg, mTimingRecorder.getSec());
+        McrtTimeStamp("onMessage/RDLMessage }", "finish onMessage/RDLMessage");
     } else if (aMsg.classId() == mcrt::RDLMessage_LeftEye::ID) {
         driver->enqRdlMessage(aMsg, mTimingRecorder.getSec());
     } else if (aMsg.classId() == mcrt::RDLMessage_RightEye::ID) {
         driver->enqRdlMessage(aMsg, mTimingRecorder.getSec());
     } else if (aMsg.classId() == mcrt::ViewportMessage::ID) { 
+        McrtTimeStamp("onMessage/ViewportMessage {", "start onMessage/ViewportMessage");
         driver->enqViewportMessage(aMsg, mTimingRecorder.getSec());
+        McrtTimeStamp("onMessage/ViewportMessage }", "finish onMessage/ViewportMessage");
 
     } else if (aMsg.classId() == mcrt::JSONMessage::ID) {
+        McrtTimeStamp("onMessage/JSONMessage {", "start onMessage/JSONMessage");
         onJSONMessage(aMsg);
-
+        McrtTimeStamp("onMessage/JSONMessage }", "finish onMessage/JSONMessage");
     } else if (aMsg.classId() == mcrt::ProgressiveFeedback::ID) {
         driver->evalProgressiveFeedbackMessage(aMsg);
 
@@ -468,10 +476,10 @@ ProgMcrtComputation::parserConfigureGenericMessage()
 
     parser.opt("snapshot", "", "execute snapshot",
                [&](Arg &) -> bool {
-                   // RenderContextDriverMaster can support multiple renderContextDriver in order to quickly
+                   // RenderContextDriverManager can support multiple renderContextDriver in order to quickly
                    // test multi-renderContext driver configuration for the future plan.
                    // However at this moment, we only use primary renderContextDriver (i.e. driverId = 0).
-                   mRenderContextDriverMaster->getDriver(0)->setReceivedSnapshotRequest(true);
+                   mRenderContextDriverManager->getDriver(0)->setReceivedSnapshotRequest(true);
                    return true;
                });
     parser.opt("fps", "<fps>", "set fps value",
@@ -485,7 +493,7 @@ ProgMcrtComputation::parserConfigureGenericMessage()
                    Arg childArg = arg.childArg(std::string("cmd ") + std::to_string(nodeId));
                    bool flag = true;
                    if (nodeId == mMachineIdOverride || nodeId == -1) {
-                       RenderContextDriver *driver = mRenderContextDriverMaster->getDriver(0);
+                       RenderContextDriver *driver = mRenderContextDriverManager->getDriver(0);
                        flag = driver->evalDebugCommand(childArg);
                    }
                    return flag;
@@ -503,18 +511,18 @@ ProgMcrtComputation::handleGenericMessage(mcrt::GenericMessage::ConstPtr msg)
         if (mcrtControl.
             run(msg->mValue,
                 [&](uint32_t currSyncId) { // callBackRenderCompleteProcedure()
-                    // RenderContextDriverMaster can support multiple renderContextDriver in order to
+                    // RenderContextDriverManager can support multiple renderContextDriver in order to
                     // quickly test multi-renderContext driver configuration for the future plan.
                     // However at this moment, we only use primary renderContextDriver (i.e. driverId = 0).
-                    RenderContextDriver *driver = mRenderContextDriverMaster->getDriver(0);
+                    RenderContextDriver *driver = mRenderContextDriverManager->getDriver(0);
                     driver->evalRenderCompleteMultiMachine(currSyncId);
                     return true;
                 },
                 [&](uint32_t currSyncId, float fraction) { // callBackGlobalProgressUpdate()
-                    // RenderContextDriverMaster can support multiple renderContextDriver in order to
+                    // RenderContextDriverManager can support multiple renderContextDriver in order to
                     // quickly test multi-renderContext driver configuration for the future plan.
                     // However at this moment, we only use primary renderContextDriver (i.e. driverId = 0).
-                    RenderContextDriver *driver = mRenderContextDriverMaster->getDriver(0);
+                    RenderContextDriver *driver = mRenderContextDriverManager->getDriver(0);
                     driver->evalMultiMachineGlobalProgressUpdate(currSyncId, fraction);
                     return true;
                 })) {
@@ -526,7 +534,7 @@ ProgMcrtComputation::handleGenericMessage(mcrt::GenericMessage::ConstPtr msg)
     }
 
     Arg arg(msg->mValue);
-    RenderContextDriver* driver = mRenderContextDriverMaster->getDriver(0);
+    RenderContextDriver* driver = mRenderContextDriverManager->getDriver(0);
     driver->setMessageHandlerToArg(arg); // setup message handler in order to send message to the downstream
     if (!mParserGenericMessage.main(arg)) {
         arg.msg("parserGenericMessage failed");
@@ -541,10 +549,10 @@ ProgMcrtComputation::onJSONMessage(const arras4::api::Message& msg)
 
     const std::string messageID = jm->messageId();
 
-    // RenderContextDriverMaster can support multiple renderContextDriver in order to quickly
+    // RenderContextDriverManager can support multiple renderContextDriver in order to quickly
     // test multi-renderContext driver configuration for the future plan. However at this moment,
     // we only use primary renderContextDriver (i.e. driverId = 0).
-    RenderContextDriver *driver = mRenderContextDriverMaster->getDriver(0);
+    RenderContextDriver *driver = mRenderContextDriverManager->getDriver(0);
 
     if (messageID == mcrt::RenderMessages::RENDER_CONTROL_ID) {
         driver->enqRenderControlMessage(msg, mTimingRecorder.getSec());

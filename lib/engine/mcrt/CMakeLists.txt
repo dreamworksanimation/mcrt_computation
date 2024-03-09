@@ -15,6 +15,7 @@ target_sources(${component}
 	McrtDebugFeedback.cc
         McrtUpdate.cc
         MessageHistory.cc
+	RenderContextDestructionManager.cc
         RenderContextDriver.cc
         RenderContextDriver_debugCommand.cc
         RenderContextDriver_enqMessage.cc
@@ -22,7 +23,7 @@ target_sources(${component}
 	RenderContextDriver_feedback.cc
         RenderContextDriver_onIdle.cc
         RenderContextDriver_startStop.cc
-        RenderContextDriverMaster.cc
+        RenderContextDriverManager.cc
         TimingRecorder.cc
 	Watcher.cc
 )
@@ -32,7 +33,7 @@ set_property(TARGET ${component}
         McrtUpdate.h
         MessageHistory.h
         RenderContextDriver.h
-        RenderContextDriverMaster.h
+        RenderContextDriverManager.h
 )
 
 target_include_directories(${component}

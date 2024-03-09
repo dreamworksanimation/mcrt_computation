@@ -17,7 +17,7 @@ class Watcher
 //
 {
 public:        
-    using CallBackFunc = std::function<void()>;
+    using CallBackFunc = std::function<void(const bool* threadShutdownFlag)>;
 
     // 
     // RunMode : STOP_AND_GO

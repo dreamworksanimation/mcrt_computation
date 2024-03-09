@@ -12,11 +12,13 @@ add_library(${PROJECT_NAME}::${component} ALIAS ${component})
 target_sources(${component}
     PRIVATE
         McrtLogging.cc
+	TimeStampDebugMsg.cc
 )
 
 set_property(TARGET ${component}
     PROPERTY PUBLIC_HEADER
         McrtLogging.h
+	TimeStampDebugMsg.h
 )
 
 target_include_directories(${component}

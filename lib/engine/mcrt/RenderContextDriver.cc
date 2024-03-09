@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "RenderContextDriver.h"
+#include "RenderContextDestructionManager.h"
 
 #include <mcrt_computation/common/mcrt_logging/McrtLogging.h>
+#include <mcrt_computation/common/mcrt_logging/TimeStampDebugMsg.h>
 #include <mcrt_dataio/share/util/MiscUtil.h>
 #include <mcrt_dataio/share/util/SysUsage.h>
 #include <mcrt_messages/RDLMessage.h>
@@ -19,7 +21,8 @@
 
 namespace mcrt_computation {
 
-RenderContextDriver::RenderContextDriver(const RenderContextDriverOptions& options)
+RenderContextDriver::RenderContextDriver(const RenderContextDriverOptions& options,
+                                         RenderContextDestructionManager* renderContextDestructionManager)
     : mDriverId(options.driverId)
     , mNumMachinesOverride(options.numMachineOverride)
     , mMachineIdOverride(options.machineIdOverride)
@@ -33,6 +36,7 @@ RenderContextDriver::RenderContextDriver(const RenderContextDriverOptions& optio
     , mSendInfoOnlyCallBack {options.sendInfoOnlyCallBack}
     , mSysUsage {options.sysUsage}
     , mPackTilePrecisionMode(options.precisionMode)
+    , mRenderContextDestructionManager(renderContextDestructionManager)
     , mSendBandwidthTracker {options.sendBandwidthTracker}
     , mRecvFeedbackFpsTracker(options.recvFeedbackFpsTracker)
     , mRecvFeedbackBandwidthTracker(options.recvFeedbackBandwidthTracker)
@@ -63,7 +67,7 @@ RenderContextDriver::RenderContextDriver(const RenderContextDriverOptions& optio
     //------------------------------
 
     mRenderPrepWatcher.boot(Watcher::RunMode::STOP_AND_GO, &mRenderPrepWatcher,
-                            [&]() {
+                            [&](const bool* threadShutdownFlag) {
                                 if (renderPrepMain()) {
                                     if (mPostRenderPrepMainCallBack) {
                                         mPostRenderPrepMainCallBack();
@@ -72,7 +76,7 @@ RenderContextDriver::RenderContextDriver(const RenderContextDriverOptions& optio
                             });
 
     mHeartBeatWatcher.boot(Watcher::RunMode::NON_STOP, &mHeartBeatWatcher,
-                           [&]() {
+                           [&](const bool* theradShutdownFlag) {
                                heartBeatMain();
                            });
 }
@@ -83,6 +87,8 @@ RenderContextDriver::~RenderContextDriver()
     // if we shut down heartBeatWatcher first.
     mHeartBeatWatcher.shutDown();
     mRenderPrepWatcher.shutDown();
+
+    if (mRenderContext) delete mRenderContext;
 }
 
 void
@@ -120,15 +126,37 @@ RenderContextDriver::getRenderContext()
     if (!mRenderContext) {
         return resetRenderContext();
     }
-    return mRenderContext.get();
+    return mRenderContext;
 }
 
 moonray::rndr::RenderContext *
 RenderContextDriver::resetRenderContext()
 {
-    mRenderContext.reset(new moonray::rndr::RenderContext(mRenderOptions));
+    McrtTimeStamp("resetRenderContext {", "start new rndr::RenderContext");
+
+    if (mRenderContext) {
+        mRenderContextDestructionManager->push(mRenderContext);
+        mRenderContext = nullptr;
+    }
+
+    McrtTimeStamp("new {", "start new rndr::RenderContext");
+    moonray::rndr::RenderContext* newRenderContext = new moonray::rndr::RenderContext(mRenderOptions);
+    {
+        std::ostringstream ostr;
+        ostr << "finish new rndr::RenderContext 0x" << std::hex << (uintptr_t)(newRenderContext) << std::dec;
+        McrtTimeStamp("new }", ostr.str());
+    }
+
+    McrtTimeStamp("set {", "start set newRenderContext");
+    {
+        mRenderContext = newRenderContext;
+    }
+    McrtTimeStamp("set }", "finish set newRenderContext");
+
+    McrtTimeStamp("resetRenderContext }", "finish new rndr::RenderContext");
+    
     mReloadingScene = true;
-    return mRenderContext.get();
+    return mRenderContext;
 }
 
 scene_rdl2::rdl2::SceneContext *
@@ -163,6 +191,8 @@ RenderContextDriver::updateSceneContextBackup(scene_rdl2::rdl2::SceneContext *sc
 bool
 RenderContextDriver::renderPrepMain()
 {
+    McrtTimeStamp("renderPrepMain {", "start renderPrepMain");
+
     MNRY_ASSERT(mRenderContext && "RenderContextDriver::main() can not run without renderContext");
 
     auto propagateRenderPrepCancelInfoToDownStream = [&]() {
@@ -181,8 +211,12 @@ RenderContextDriver::renderPrepMain()
         }
     }
 
+    McrtTimeStamp("startFrame {", "start startFrame");
+
     moonray::rndr::RenderContext::RP_RESULT flag = mRenderContext->startFrame();
     mLastTimeRenderPrepResult = flag; // update last renderPrep result 
+
+    McrtTimeStamp("startFrame }", "finish startFrame");
 
     if (mTimingRecFrame) mTimingRecFrame->setRenderPrepEndTiming();
 
@@ -222,6 +256,7 @@ RenderContextDriver::renderPrepMain()
     mSentCompleteFrame = false; // Condition flag about sending a snapshot of the completed condition.
     mSentFinalPixelInfoBuffer = false;
 
+    McrtTimeStamp("renderPrepMain }", "finish renderPrepMain");
     return true;
 }
 
@@ -230,8 +265,6 @@ RenderContextDriver::heartBeatMain()
 {
     float checkFps = (*mFps) * 0.5f; // try to check by half fps interval. i.e. 2x longer interval
     if (isEnoughSendIntervalHeartBeat(checkFps)) {
-        std::cerr << ">> RenderContextDriver.cc heartBeatMain() need to send info\n";
-
         // First of all, encode McrtNodeInfo data for statistical info update by infoCodec
         std::vector<std::string> infoDataArray;
         updateInfoData(infoDataArray);

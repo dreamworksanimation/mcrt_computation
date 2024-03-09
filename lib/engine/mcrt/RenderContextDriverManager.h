@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "RenderContextDestructionManager.h"
 #include "RenderContextDriver.h"
 
 #include <memory>
@@ -25,7 +26,7 @@ namespace mcrt_computation {
 class McrtLogging;
 class RenderContextDriver;
 
-class RenderContextDriverMaster
+class RenderContextDriverManager
 //
 // This class maintains multiple RenderContextDriver. However, at this moment we are using a single
 // RenderContextDriver configuration only. Support multiple renderContextDriver is still in the pretty
@@ -43,19 +44,19 @@ public:
     using StopFrameCallBack = std::function<void(const std::string &soruce)>;
 
     // Non-copyable
-    RenderContextDriverMaster &operator = (const RenderContextDriverMaster) = delete;
-    RenderContextDriverMaster(const RenderContextDriverMaster &) = delete;
+    RenderContextDriverManager &operator = (const RenderContextDriverManager) = delete;
+    RenderContextDriverManager(const RenderContextDriverManager &) = delete;
 
-    RenderContextDriverMaster(int numMachineOverride,
-                              int machineIdOverride,
-                              mcrt_dataio::SysUsage& sysUsage,
-                              mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
-                              McrtLogging *mcrtLogging = nullptr,
-                              bool* mcrtDebugLogCreditUpdateMessage = nullptr,
-                              PackTilePrecisionMode precisionMode = PackTilePrecisionMode::AUTO16,
-                              mcrt_dataio::FpsTracker* recvFeedbackFpsTracker = nullptr,
-                              mcrt_dataio::BandwidthTracker* recvFeedbackBandwidthTracker = nullptr);
-    ~RenderContextDriverMaster(); // destroy all drivers
+    RenderContextDriverManager(int numMachineOverride,
+                               int machineIdOverride,
+                               mcrt_dataio::SysUsage& sysUsage,
+                               mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
+                               McrtLogging *mcrtLogging = nullptr,
+                               bool* mcrtDebugLogCreditUpdateMessage = nullptr,
+                               PackTilePrecisionMode precisionMode = PackTilePrecisionMode::AUTO16,
+                               mcrt_dataio::FpsTracker* recvFeedbackFpsTracker = nullptr,
+                               mcrt_dataio::BandwidthTracker* recvFeedbackBandwidthTracker = nullptr);
+    ~RenderContextDriverManager(); // destroy all drivers
 
     // return newly created driver's driverId
     int addDriver(const moonray::rndr::RenderOptions* renderOptionsPtr = nullptr,
@@ -90,6 +91,8 @@ private:
 
     int mLastDriverId {-1};
     std::vector<RenderContextDriverUqPtr> mArray;
+
+    RenderContextDestructionManager mRenderContextDestructionManager;
 };
 
 } // namespace mcrt_computation

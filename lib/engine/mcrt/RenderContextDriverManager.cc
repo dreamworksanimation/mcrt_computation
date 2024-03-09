@@ -1,7 +1,7 @@
 // Copyright 2023-2024 DreamWorks Animation LLC
 // SPDX-License-Identifier: Apache-2.0
 
-#include "RenderContextDriverMaster.h"
+#include "RenderContextDriverManager.h"
 #include "RenderContextDriver.h"
 
 #include <moonray/rendering/shading/UdimTexture.h>
@@ -11,15 +11,15 @@
 
 namespace mcrt_computation {
 
-RenderContextDriverMaster::RenderContextDriverMaster(int numMachineOverride,
-                                                     int machineIdOverride,
-                                                     mcrt_dataio::SysUsage& sysUsage,
-                                                     mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
-                                                     McrtLogging* mcrtLogging,
-                                                     bool* mcrtDebugLogCreditUpdateMessage,
-                                                     PackTilePrecisionMode packTilePrecisionMode,
-                                                     mcrt_dataio::FpsTracker* recvFeedbackFpsTracker,
-                                                     mcrt_dataio::BandwidthTracker* recvFeedbackBandwidthTracker)
+RenderContextDriverManager::RenderContextDriverManager(int numMachineOverride,
+                                                       int machineIdOverride,
+                                                       mcrt_dataio::SysUsage& sysUsage,
+                                                       mcrt_dataio::BandwidthTracker& sendBandwidthTracker,
+                                                       McrtLogging* mcrtLogging,
+                                                       bool* mcrtDebugLogCreditUpdateMessage,
+                                                       PackTilePrecisionMode packTilePrecisionMode,
+                                                       mcrt_dataio::FpsTracker* recvFeedbackFpsTracker,
+                                                       mcrt_dataio::BandwidthTracker* recvFeedbackBandwidthTracker)
     : mNumMachineOverride(numMachineOverride)
     , mMachineIdOverride(machineIdOverride)
     , mSysUsage {sysUsage}
@@ -51,18 +51,18 @@ RenderContextDriverMaster::RenderContextDriverMaster(int numMachineOverride,
     }
 }
 
-RenderContextDriverMaster::~RenderContextDriverMaster()
+RenderContextDriverManager::~RenderContextDriverManager()
 {
 }
 
 int
-RenderContextDriverMaster::addDriver(const moonray::rndr::RenderOptions* renderOptionsPtr,
-                                     std::atomic<bool>* renderPrepCancel,
-                                     const float* fps,
-                                     const PostMainCallBack& postMainCallBack,
-                                     const StartFrameCallBack& startFrameCallBack,
-                                     const StopFrameCallBack& stopFrameCallBack,
-                                     const ProgressiveFrameSendCallBack& sendInfoOnlyCallBack)
+RenderContextDriverManager::addDriver(const moonray::rndr::RenderOptions* renderOptionsPtr,
+                                      std::atomic<bool>* renderPrepCancel,
+                                      const float* fps,
+                                      const PostMainCallBack& postMainCallBack,
+                                      const StartFrameCallBack& startFrameCallBack,
+                                      const StopFrameCallBack& stopFrameCallBack,
+                                      const ProgressiveFrameSendCallBack& sendInfoOnlyCallBack)
 {
     RenderContextDriverOptions options(postMainCallBack, startFrameCallBack, stopFrameCallBack,
                                        sendInfoOnlyCallBack,
@@ -79,13 +79,13 @@ RenderContextDriverMaster::addDriver(const moonray::rndr::RenderOptions* renderO
     options.recvFeedbackFpsTracker = mRecvFeedbackFpsTracker;
     options.recvFeedbackBandwidthTracker = mRecvFeedbackBandwidthTracker;
 
-    RenderContextDriverUqPtr ptr(new RenderContextDriver(options));
+    RenderContextDriverUqPtr ptr(new RenderContextDriver(options, &mRenderContextDestructionManager));
     mArray.push_back(std::move(ptr));
     return mArray.back()->getDriverId();
 }
 
 bool
-RenderContextDriverMaster::rmDriver(const int driverId)
+RenderContextDriverManager::rmDriver(const int driverId)
 {
     int arrayId = findArrayId(driverId);
     if (arrayId < 0) return false;
@@ -97,7 +97,7 @@ RenderContextDriverMaster::rmDriver(const int driverId)
 }
 
 RenderContextDriver *
-RenderContextDriverMaster::getDriver(const int driverId)
+RenderContextDriverManager::getDriver(const int driverId)
 {
     int arrayId = findArrayId(driverId);
     if (arrayId < 0) return nullptr;
@@ -105,14 +105,14 @@ RenderContextDriverMaster::getDriver(const int driverId)
 }
 
 std::string
-RenderContextDriverMaster::show() const
+RenderContextDriverManager::show() const
 {
     auto showArrayItem = [&](const size_t id) -> std::string {
         return "i:" + std::to_string(id) + ' ' + mArray[id]->show();
     };
 
     std::ostringstream ostr;
-    ostr << "RenderContextDriverMaster {\n"
+    ostr << "RenderContextDriverManager {\n"
          << "  mLastDriverId:" << mLastDriverId << '\n';
     ostr << "  mArray (size:" << mArray.size() << ") {\n";
     for (size_t i = 0; i < mArray.size(); ++i) {
@@ -126,7 +126,7 @@ RenderContextDriverMaster::show() const
 //------------------------------------------------------------------------------------------
 
 int    
-RenderContextDriverMaster::findArrayId(const int driverId)
+RenderContextDriverManager::findArrayId(const int driverId)
 //
 // return mArray's index when found driver which has driverId
 // otherwise return -1

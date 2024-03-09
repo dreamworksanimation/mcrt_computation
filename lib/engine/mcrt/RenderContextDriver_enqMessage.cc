@@ -5,6 +5,7 @@
 
 #include <arras4_log/Logger.h> // ARRAS_LOG_INFO
 #include <mcrt_computation/common/mcrt_logging/McrtLogging.h>
+#include <mcrt_computation/common/mcrt_logging/TimeStampDebugMsg.h>
 #include <mcrt_messages/RDLMessage.h>
 #include <mcrt_messages/ViewportMessage.h>
 
@@ -287,6 +288,8 @@ void
 RenderContextDriver::processRdlMessage(const MessageContentConstPtr &msg,
                                        arras4::api::ObjectConstRef src)
 {
+    McrtTimeStamp("processRdlMessage() {", "start processRdlMessage");
+
     moonray::rndr::RenderContext *renderContext = getRenderContext();
     scene_rdl2::rdl2::SceneContext *sceneContextBackup = getSceneContextBackup();
 
@@ -296,59 +299,90 @@ RenderContextDriver::processRdlMessage(const MessageContentConstPtr &msg,
     std::cerr << ">> RenderContextDriver_enqMessage.cc processRdlMessage() syncId:" << rdlMsg->mSyncId << '\n';
 #   endif // end DEBUG_MSG_PROCESS
 
-    setSource(src);
-    mSyncId = rdlMsg->mSyncId;
+    McrtTimeStamp("rdlMsg part1 {", "start part1");
+    {
+        setSource(src);
+        mSyncId = rdlMsg->mSyncId;
 
-    if (renderContext) {
-        // reset global progress for multi-machine configuration
-        renderContext->setMultiMachineGlobalProgressFraction(0.0f);
+        if (renderContext) {
+            // reset global progress for multi-machine configuration
+            renderContext->setMultiMachineGlobalProgressFraction(0.0f);
+        }
     }
+    McrtTimeStamp("rdlMsg part1 }", "finish part1");
 
     // If we haven't begun rendering yet (mRenderContext is NULL),
     // or we need to restart rendering from scratch, do so here
     std::string oldCancelInfo;
     moonray::rndr::RenderContext::MsgHandler oldMsgHandler;
     if (rdlMsg->mForceReload || !renderContext) {
-        // This is a debugging purpose.
-        // We have to set the same cancelCodePos/msgHandler to the reconstructed renderContext.
-        oldMsgHandler = renderContext->getExecTrackerMsgHandlerCallBack();                
-        oldCancelInfo = renderContext->execTrackerCancelInfoEncode();
+        McrtTimeStamp("rdlMsg resetRenderContext {", "start resetRenderContext");
+        {
+            // This is a debugging purpose.
+            // We have to set the same cancelCodePos/msgHandler to the reconstructed renderContext.
+            oldMsgHandler = renderContext->getExecTrackerMsgHandlerCallBack();                
+            oldCancelInfo = renderContext->execTrackerCancelInfoEncode();
         
-        // We have to reconstruct fresh renderContext and sceneContextBackup
-        renderContext = resetRenderContext(); // reconstruct renderContext
-        sceneContextBackup = resetSceneContextBackup();
-        mReloadingScene = true;
+            // We have to reconstruct fresh renderContext and sceneContextBackup
+            renderContext = resetRenderContext(); // reconstruct renderContext
+        }
+        McrtTimeStamp("rdlMsg resetRenderContext }", "finish resetRenderContext");
+
+        McrtTimeStamp("rdlMsg resetSceneContextBackup {", "start resetSceneContextBackup");
+        {
+            sceneContextBackup = resetSceneContextBackup();
+            mReloadingScene = true;
+        }
+        McrtTimeStamp("rdlMsg resetSceneContextBackup }", "finish resetSceneContextBackup");
     }
 
-    MNRY_ASSERT(renderContext && "Cannot apply a scene update without a RenderContext!");
-    renderContext->updateScene(rdlMsg->mManifest, rdlMsg->mPayload);
-    updateSceneContextBackup(sceneContextBackup, rdlMsg->mManifest, rdlMsg->mPayload);
+    McrtTimeStamp("rdlMsg updateScene {", "rdlMsg updateScene {");
+    {
+        MNRY_ASSERT(renderContext && "Cannot apply a scene update without a RenderContext!");
+        renderContext->updateScene(rdlMsg->mManifest, rdlMsg->mPayload);
+    }
+    McrtTimeStamp("rdlMsg updateScene }", "finish updateScene");
+
+    McrtTimeStamp("rdlMsg backup {", "start backup");
+    {
+        updateSceneContextBackup(sceneContextBackup, rdlMsg->mManifest, rdlMsg->mPayload);
+    }
+    McrtTimeStamp("rdlMsg backup }", "finish backup");
 
     scene_rdl2::rdl2::SceneVariables &sceneVars = renderContext->getSceneContext().getSceneVariables();
 
     // Check if the resolution changed and re init the buffers
     scene_rdl2::math::HalfOpenViewport currentViewport = sceneVars.getRezedRegionWindow();
 
-    if (mViewport != currentViewport && renderContext->isInitialized()) {
-        ARRAS_LOG_INFO("MCRT: Detected change in resolution");
-        initializeBuffers();
-    }
-
-    if (!renderContext->isInitialized()) {
-        std::stringstream initMessages;
-        renderContext->initialize(initMessages); // renderLayer (mLayer) is updated here
-        applyConfigOverrides(); // Just in case, we do applyConfigOverrides() just after init renderContext
-        initializeBuffers();
-
-        if (!oldCancelInfo.empty()) {
-            // restore old information for debug
-            renderContext->setExecTrackerMsgHandlerCallBack(oldMsgHandler);
-            renderContext->execTrackerCancelInfoDecode(oldCancelInfo);
+    McrtTimeStamp("rdlMsg initBuffers {", "start initializeBuffers");
+    {
+        if (mViewport != currentViewport && renderContext->isInitialized()) {
+            ARRAS_LOG_INFO("MCRT: Detected change in resolution");
+            initializeBuffers();
         }
     }
+    McrtTimeStamp("rdlMsg initBuffers }", "finish initializeBuffers");
 
-    // Check whether debug/info logging should be enabled
+    if (!renderContext->isInitialized()) {
+        McrtTimeStamp("rdlMsg renderContext init {", "start renderContextInit");
+        {
+            std::stringstream initMessages;
+            renderContext->initialize(initMessages); // renderLayer (mLayer) is updated here
+            applyConfigOverrides(); // Just in case, we do applyConfigOverrides() just after init renderContext
+            initializeBuffers();
+
+            if (!oldCancelInfo.empty()) {
+                // restore old information for debug
+                renderContext->setExecTrackerMsgHandlerCallBack(oldMsgHandler);
+                renderContext->execTrackerCancelInfoDecode(oldCancelInfo);
+            }
+        }
+        McrtTimeStamp("rdlMsg renderContext init }", "finish renderContextInit");
+    }
+
+    McrtTimeStamp("processRdlMessage() logging {", "start logging");
     {
+        // Check whether debug/info logging should be enabled
         const bool infoLogging = sceneVars.get(scene_rdl2::rdl2::SceneVariables::sInfoKey);
         const bool debugLogging = sceneVars.get(scene_rdl2::rdl2::SceneVariables::sDebugKey);
 
@@ -366,6 +400,8 @@ RenderContextDriver::processRdlMessage(const MessageContentConstPtr &msg,
             updateLoggingMode();
         }
     }
+    McrtTimeStamp("processRdlMessage() logging }", "finish logging");
+    McrtTimeStamp("processRdlMessage() }", "finish processRdlMessage");
 }
 
 void

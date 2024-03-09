@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include <mcrt_computation/engine/mcrt/RenderContextDriverMaster.h>
+#include <mcrt_computation/engine/mcrt/RenderContextDriverManager.h>
 #include <mcrt_computation/engine/mcrt/TimingRecorder.h>
 
 #include <mcrt_computation/common/rec_load/RecLoad.h>
@@ -55,7 +55,7 @@ private:
 
     //------------------------------
 
-    std::unique_ptr<RenderContextDriverMaster> mRenderContextDriverMaster {nullptr};
+    std::unique_ptr<RenderContextDriverManager> mRenderContextDriverManager {nullptr};
 
     moonray::rndr::RenderOptions mOptions;
 
