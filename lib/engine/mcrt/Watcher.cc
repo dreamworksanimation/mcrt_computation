@@ -102,7 +102,7 @@ Watcher::threadMain(Watcher* watcher, const CallBackFunc& callBack)
         }
 
         watcher->mThreadState = ThreadState::BUSY;
-        callBack(&watcher->mThreadShutdown);
+        callBack();
         watcher->mThreadState = ThreadState::IDLE;
 
         if (watcher->mRunMode == RunMode::STOP_AND_GO) {

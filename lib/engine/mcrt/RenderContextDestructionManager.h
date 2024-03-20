@@ -35,7 +35,7 @@ public:
     void push(RenderContext* oldRenderContextPtr);
 
 private:
-    void oldRenderContextCleanupMain(const bool* threadShutdownFlag);
+    void oldRenderContextCleanupMain();
 
     //------------------------------
 
@@ -47,6 +47,9 @@ private:
 
     // We want to control RenderContext pointer by ourselvess (i.e. do not use unique_ptr, shared_ptr)
     std::vector<RenderContext*> mOldRenderContextTbl;
+
+    // thread shutdown control flag for oldRenderContextCleanupMain() internal loop
+    bool mThreadShutdown { false };
 };
 
 } // namespace mcrt_computation

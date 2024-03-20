@@ -12,13 +12,18 @@ RenderContextDestructionManager::RenderContextDestructionManager()
 {
     mOldRenderContextWatcher.boot(Watcher::RunMode::NON_STOP,
                                   &mOldRenderContextWatcher,
-                                  [&](const bool* threadShutdownFlag) { // main function of booted thread
-                                      oldRenderContextCleanupMain(threadShutdownFlag);
+                                  [&]() { // main function of booted thread
+                                      oldRenderContextCleanupMain();
                                   });
 }
 
 RenderContextDestructionManager::~RenderContextDestructionManager()
 {
+    // First of all, wake up the thread from the condition-wait of the internal loop.
+    mThreadShutdown = true;
+    mCvOldRenderContextTbl.notify_one();
+
+    // Then, shut down Watcher thread next.
     mOldRenderContextWatcher.shutDown();    
 }
 
@@ -37,7 +42,7 @@ RenderContextDestructionManager::push(RenderContext* oldRenderContextPtr)
 }
 
 void
-RenderContextDestructionManager::oldRenderContextCleanupMain(const bool* threadShutdownFlag)
+RenderContextDestructionManager::oldRenderContextCleanupMain()
 {
     while (true) {
         RenderContext* currRenderContext = nullptr;
@@ -46,10 +51,11 @@ RenderContextDestructionManager::oldRenderContextCleanupMain(const bool* threadS
             std::unique_lock<std::mutex> uqLock(mMutexOldRenderContextTbl);
             mCvOldRenderContextTbl.wait(uqLock, [&] {
                     // Wait until oldRenderContext is not empty or shutdownFlag is ON
-                    return !mOldRenderContextTbl.empty() || (*threadShutdownFlag);
+                    return !mOldRenderContextTbl.empty() || (mThreadShutdown);
                 });
-            if (mOldRenderContextTbl.empty() && (*threadShutdownFlag)) {
+            if (mOldRenderContextTbl.empty() && (mThreadShutdown)) {
                 // This function only exits when all the old RenderContext are removed and shutdownFlag is on.
+                std::cerr << "===>>> oldRenderContextCleanup thread shutdown <<<===\n";
                 break;
             }
 

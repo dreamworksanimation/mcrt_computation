@@ -67,7 +67,7 @@ RenderContextDriver::RenderContextDriver(const RenderContextDriverOptions& optio
     //------------------------------
 
     mRenderPrepWatcher.boot(Watcher::RunMode::STOP_AND_GO, &mRenderPrepWatcher,
-                            [&](const bool* threadShutdownFlag) {
+                            [&]() {
                                 if (renderPrepMain()) {
                                     if (mPostRenderPrepMainCallBack) {
                                         mPostRenderPrepMainCallBack();
@@ -76,7 +76,7 @@ RenderContextDriver::RenderContextDriver(const RenderContextDriverOptions& optio
                             });
 
     mHeartBeatWatcher.boot(Watcher::RunMode::NON_STOP, &mHeartBeatWatcher,
-                           [&](const bool* theradShutdownFlag) {
+                           [&]() {
                                heartBeatMain();
                            });
 }
