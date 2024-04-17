@@ -9,9 +9,13 @@ add_library(${PROJECT_NAME}::${component} ALIAS ${component})
 target_sources(${component}
     PRIVATE
         ProgMcrtMergeClockDeltaDriver.cc
-        ProgMcrtMergeComputation.cc 
+        ProgMcrtMergeComputation.cc
         ProgMcrtMergeDebugFeedback.cc
 )
+
+if(IsDarwinPlatform)
+    set_target_properties(${component} PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
+endif()
 
 target_link_libraries(${component}
     PUBLIC
@@ -19,11 +23,11 @@ target_link_libraries(${component}
         McrtDataio::engine_mcrt
         McrtDataio::engine_merger
         McrtMessages::mcrt_messages
-        Moonray::grid_engine_tool 
+        Moonray::grid_engine_tool
         SceneRdl2::common_grid_util
         SceneRdl2::render_util
         SceneRdl2::common_fb_util
-        ArrasCore::arras4_log 
+        ArrasCore::arras4_log
         ArrasCore::computation_api
 )
 

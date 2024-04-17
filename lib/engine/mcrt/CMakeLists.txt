@@ -42,18 +42,22 @@ target_include_directories(${component}
         $<INSTALL_INTERFACE:include>
 )
 
+if(IsDarwinPlatform)
+    set_target_properties(${component} PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
+endif()
+
 target_link_libraries(${component}
     PUBLIC
         McrtDataio::engine_mcrt
         McrtDataio::engine_merger
         McrtDataio::share_util
         McrtMessages::mcrt_messages
-	Moonray::rendering_mcrt_common
+        Moonray::rendering_mcrt_common
         Moonray::rendering_rndr
         Moonray::rendering_shading
         SceneRdl2::common_grid_util
         SceneRdl2::common_rec_time
-	SceneRdl2::render_cache
+        SceneRdl2::render_cache
         SceneRdl2::render_logging
         SceneRdl2::render_util
 )
