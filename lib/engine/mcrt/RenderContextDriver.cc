@@ -14,6 +14,9 @@
 #include <iostream>
 #include <sstream>
 
+//#define DEBUG_MSG_START_MESSAGE
+//#define DEBUG_MSG_RENDERPREPMAIN
+
 // This directive adds debugFeedback module in order to verify feedback logic.
 // There is a runtime debug on/off debugConsole command and it is no impact on the
 // performance as long as the runtime debug sets to off even if this directive is active
@@ -100,7 +103,15 @@ RenderContextDriver::start()
     // need to stop renderDriver here.
     // we have to stop MCRT stage or RenderPrep here if it is running
 
+#ifdef DEBUG_MSG_START_MESSAGE
+    std::cerr << ">> RenderContextDriver.cc start() before mRenderPrepWatcher.resume()\n";
+#endif // end DEBUG_MSG_START_MESSAGE
+
     mRenderPrepWatcher.resume();
+
+#ifdef DEBUG_MSG_START_MESSAGE
+    std::cerr << ">> RenderContextDriver.cc start() after mRenderPrepWatcher.resume()\n";
+#endif // end DEBUG_MSG_START_MESSAGE
 }
 
 //------------------------------------------------------------------------------------------
@@ -191,6 +202,9 @@ RenderContextDriver::updateSceneContextBackup(scene_rdl2::rdl2::SceneContext *sc
 bool
 RenderContextDriver::renderPrepMain()
 {
+#ifdef DEBUG_MSG_RENDERPREPMAIN
+    std::cerr << ">> RenderContextDriver.cc renderPrepMain() start\n";
+#endif // end DEBUG_MSG_RENDERPREPMAIN
     McrtTimeStamp("renderPrepMain {", "start renderPrepMain");
 
     MNRY_ASSERT(mRenderContext && "RenderContextDriver::main() can not run without renderContext");
@@ -211,11 +225,17 @@ RenderContextDriver::renderPrepMain()
         }
     }
 
+#ifdef DEBUG_MSG_RENDERPREPMAIN
+    std::cerr << ">> RenderContextDriver.cc renderPrepMain() before mRenderContext->startFrame()\n";
+#endif // end DEBUG_MSG_RENDERPREPMAIN
     McrtTimeStamp("startFrame {", "start startFrame");
 
     moonray::rndr::RenderContext::RP_RESULT flag = mRenderContext->startFrame();
     mLastTimeRenderPrepResult = flag; // update last renderPrep result 
 
+#ifdef DEBUG_MSG_RENDERPREPMAIN
+    std::cerr << ">> RenderContextDriver.cc renderPrepMain() after mRenderContext->startFrame()\n";
+#endif // end DEBUG_MSG_RENDERPREPMAIN
     McrtTimeStamp("startFrame }", "finish startFrame");
 
     if (mTimingRecFrame) mTimingRecFrame->setRenderPrepEndTiming();
@@ -256,7 +276,11 @@ RenderContextDriver::renderPrepMain()
     mSentCompleteFrame = false; // Condition flag about sending a snapshot of the completed condition.
     mSentFinalPixelInfoBuffer = false;
 
+#ifdef DEBUG_MSG_RENDERPREPMAIN
+    std::cerr << ">> RenderContextDriver.cc renderPrepMain() finish\n";
+#endif // end DEBUG_MSG_RENDERPREPMAIN
     McrtTimeStamp("renderPrepMain }", "finish renderPrepMain");
+
     return true;
 }
 
