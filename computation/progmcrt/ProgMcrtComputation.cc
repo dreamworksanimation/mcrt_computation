@@ -19,6 +19,8 @@
 #include <cctype>       // std::tolower
 #include <thread>       // std::thread::hardware_concurrency()
 
+#include <sys/resource.h>
+
 // This directive is used only for development purpose.
 // This directive shows some debug messages to the stderr in order to make
 // shortest latency of message display to the ssh windows.
@@ -55,6 +57,7 @@ namespace {
     const std::string sApplicationMode = "applicationMode";
     const std::string sExecMode = "exec_mode";
     const std::string sInitialCredit = "initialCredit";
+    const std::string sAllowCoreDump = "allowCoreDump";
 
     const std::string AOV_BEAUTY = "beauty";
     const std::string AOV_DEPTH = "depth";
@@ -174,6 +177,17 @@ ProgMcrtComputation::configure(const std::string& op,
         aConfig[sConfigFastGeometry].asBool()) {
         mOptions.setFastGeometry();
     }
+
+    struct rlimit rlim;
+    getrlimit(RLIMIT_CORE, &rlim);
+    if (aConfig[sAllowCoreDump].isBool() && aConfig[sAllowCoreDump].asBool()) {
+        // Turn on core dumps
+        rlim.rlim_cur = RLIM_INFINITY;
+    } else {
+        // Turn off core dumps (default)
+        rlim.rlim_cur = 0;
+    }
+    setrlimit(RLIMIT_CORE, &rlim);
 
     if (mNumMachinesOverride <= 1) {
         mOptions.setRenderMode(moonray::rndr::RenderMode::PROGRESSIVE);
