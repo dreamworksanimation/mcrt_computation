@@ -14,7 +14,7 @@ def version():
     """
     Increment the build in the version.
     """
-    _version = '14.12'
+    _version = '14.13'
     from rezbuild import earlybind
     return earlybind.version(this, _version)
 
@@ -56,7 +56,7 @@ requires = [
     'arras4_core-4.10',
     'mcrt_dataio-14.10',
     'mcrt_messages-13.3',
-    'moonray-16.12',
+    'moonray-16.13',
     'scene_rdl2-14.10',
 ]
 
