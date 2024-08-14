@@ -54,7 +54,6 @@ namespace {
     const std::string sConfigFastGeometry = "fastGeometry";
     const std::string sConfigPackTilePrecision = "packTilePrecision";
     const std::string sRenderMode = "renderMode";
-    const std::string sApplicationMode = "applicationMode";
     const std::string sExecMode = "exec_mode";
     const std::string sInitialCredit = "initialCredit";
     const std::string sAllowCoreDump = "allowCoreDump";
@@ -209,18 +208,6 @@ ProgMcrtComputation::configure(const std::string& op,
             } else {
                 ARRAS_LOG_INFO("Unrecognized render mode, setting to default Checkpoint(timebased) Mode");
             }
-        }
-    }
-
-    // Undefined mode is backward compatible with previous behavior and has been added as such.
-    mOptions.setApplicationMode(moonray::rndr::ApplicationMode::UNDEFINED);
-    if (aConfig[sApplicationMode].isString()) {
-        if (aConfig[sApplicationMode].asString() == "motionCapture") {
-            mOptions.setApplicationMode(moonray::rndr::ApplicationMode::MOTIONCAPTURE);
-        } else if(aConfig[sApplicationMode].asString() == "motioncapture") {
-            mOptions.setApplicationMode(moonray::rndr::ApplicationMode::MOTIONCAPTURE);
-        } else {
-            ARRAS_LOG_ERROR("APPLICATION MODE SET TO UNDEFIND");
         }
     }
 
