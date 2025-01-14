@@ -17,6 +17,7 @@
 
 #include <algorithm>    // std::transform
 #include <cctype>       // std::tolower
+#include <filesystem>
 #include <thread>       // std::thread::hardware_concurrency()
 
 #include <sys/resource.h>
@@ -72,11 +73,15 @@ ProgMcrtComputation::ProgMcrtComputation(arras4::api::ComputationEnvironment* en
     , mOptions()
 {
 #   ifdef USE_RAAS_DEBUG_FILENAME
-    char * delayFilename = getenv("RAAS_DEBUG_FILENAME");
+    // If this file exists, backend computation is waiting to connect the gdb session by an infinite waiting loop.
+    // After being removed or renamed to a different name, the backend computation ends the waiting loop and starts
+    // execution as usual.
+    const char* delayFilename = "/usr/pic1/<waitLoopControlFile>"; // Need to be changed to proper filename. 
+    std::cerr << ">>> ProgMcrtComputation.cc ProgMcrtComputation::ProgMcrtComputation() delayFilename:" << delayFilename << '\n';
     if (delayFilename) {
         std::cerr << ">> ProgMcrtComputation.cc debug wait loop START"
                   << " delayFilename:" << delayFilename << std::endl;
-        while (access(delayFilename, R_OK)) {
+        while (std::filesystem::exists(delayFilename)) {
             unsigned int const DELTA_TIME = 3;
             sleep(DELTA_TIME);
             std::cerr << ">> ProgMcrtComputation.cc sleep pid:" << (size_t)getpid() << std::endl;
