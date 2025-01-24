@@ -6,6 +6,7 @@
 #include <moonray/rendering/rndr/RenderContext.h>
 #include <moonray/rendering/rndr/RenderPrepExecTracker.h>
 #include <moonray/rendering/shading/UdimTexture.h>
+#include <moonray/rendering/mcrt_common/AffinityManager.h>
 
 #include <scene_rdl2/render/logging/logging.h>
 
@@ -22,6 +23,10 @@ RenderContextDriver::debugCommandParserConfigure()
 
     Parser& parser = mParserDebugCommand;
     parser.description("mcrt computation debug command"); 
+    parser.opt("affinityManager", "...command...", "affinityManager command",
+               [&](Arg& arg) -> bool {
+                   return moonray::mcrt_common::AffinityManager::get()->getParser().main(arg.childArg());
+               });
     parser.opt("snapshotDeltaRec", "...command...", "snapshotDeltaRec command",
                [&](Arg &arg) -> bool { return mParserDebugCommandSnapshotDeltaRec.main(arg.childArg()); });
     parser.opt("showPrecision", "", "show AOV precision information",

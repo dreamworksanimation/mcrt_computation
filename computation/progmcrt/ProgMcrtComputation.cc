@@ -45,19 +45,23 @@ COMPUTATION_CREATOR(ProgMcrtComputation);
 namespace {
 
     // Configuration constants
+    const std::string sAllowCoreDump = "allowCoreDump";
+    const std::string sAutoAffinity = "auto_affinity";
+    const std::string sCpuAffinity = "cpu_affinity";
     const std::string sConfigScene = "scene";
     const std::string sConfigDsopath = "dsopath";
     const std::string sConfigEnableDepthBuffer = "enableDepthBuffer";
+    const std::string sExecMode = "exec_mode";
     const std::string sConfigFps = "fps";
-    const std::string sConfigNumMachines = "numMachines";
-    const std::string sConfigMachineId = "machineId";
     const std::string sConfigFrameGating = "frameGating";
     const std::string sConfigFastGeometry = "fastGeometry";
+    const std::string sInitialCredit = "initialCredit";
+    const std::string sConfigMachineId = "machineId";
+    const std::string sMemAffinity = "mem_affinity";
+    const std::string sConfigNumMachines = "numMachines";
     const std::string sConfigPackTilePrecision = "packTilePrecision";
     const std::string sRenderMode = "renderMode";
-    const std::string sExecMode = "exec_mode";
-    const std::string sInitialCredit = "initialCredit";
-    const std::string sAllowCoreDump = "allowCoreDump";
+    const std::string sSocketAffinity = "socket_affinity";
 
     const std::string AOV_BEAUTY = "beauty";
     const std::string AOV_DEPTH = "depth";
@@ -181,6 +185,28 @@ ProgMcrtComputation::configure(const std::string& op,
         aConfig[sConfigFastGeometry].asBool()) {
         mOptions.setFastGeometry();
     }
+
+    // Affinity control
+    if (aConfig[sAutoAffinity].isString()) {
+        mOptions.setAutoAffinityDef(aConfig[sAutoAffinity].asString());
+    }
+    if (aConfig[sCpuAffinity].isString()) {
+        mOptions.setCpuAffinityDef(aConfig[sCpuAffinity].asString());
+    }
+    if (aConfig[sMemAffinity].isString()) {
+        mOptions.setMemAffinityDef(aConfig[sMemAffinity].asString());
+    }
+    if (aConfig[sSocketAffinity].isString()) {
+        mOptions.setSocketAffinityDef(aConfig[sSocketAffinity].asString());
+    }
+    /* useful debug dump
+    std::cerr << ">> ProgMcrtComputation.cc Affinity control {\n"
+              << "  mOptions.getAutoAffinityDef():" << mOptions.getAutoAffinityDef() << '\n'
+              << "  mOptions.getCpuAffinityDef():" << mOptions.getCpuAffinityDef() << '\n'
+              << "  mOptions.getSocketAffinityDef():" << mOptions.getSocketAffinityDef() << '\n'
+              << "  mOptions.getMemAffinityDef():" << mOptions.getMemAffinityDef() << '\n'
+              << "}\n";
+    */
 
     struct rlimit rlim;
     getrlimit(RLIMIT_CORE, &rlim);
