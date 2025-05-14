@@ -14,7 +14,7 @@ def version():
     """
     Increment the build in the version.
     """
-    _version = '15.12'
+    _version = '15.13'
     from rezbuild import earlybind
     return earlybind.version(this, _version)
 
@@ -45,10 +45,10 @@ conf_CI_variants = variants
 
 requires = [
     'arras4_core-4.10',
-    'mcrt_dataio-15.6',
+    'mcrt_dataio-15.7',
     'mcrt_messages-14.2',
-    'moonray-17.12',
-    'scene_rdl2-15.6',
+    'moonray-17.13',
+    'scene_rdl2-15.7',
 ]
 
 private_build_requires = [
