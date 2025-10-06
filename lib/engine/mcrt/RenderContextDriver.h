@@ -29,8 +29,7 @@
 #include <scene_rdl2/common/grid_util/Parser.h>
 #include <scene_rdl2/common/math/Viewport.h>
 
-#include <tbb/atomic.h>
-
+#include <atomic>
 #include <condition_variable>
 #include <mutex>
 #include <thread>

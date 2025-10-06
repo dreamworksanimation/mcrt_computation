@@ -3,10 +3,10 @@
 
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <functional>
 #include <mutex>
-#include <tbb/atomic.h>
 #include <thread>
 
 namespace mcrt_computation {
@@ -16,10 +16,10 @@ class Watcher
 // This class executes user defined call-back function as an independent thread.
 //
 {
-public:        
+public:
     using CallBackFunc = std::function<void()>;
 
-    // 
+    //
     // RunMode : STOP_AND_GO
     // Initially, the callback function execution thread is suspended and waiting resume() API call.
     // In order to start the callback function execution, you have to call resume() API. After finishing
@@ -59,9 +59,9 @@ private:
 
     std::thread mThread;
 
-    tbb::atomic<ThreadState> mThreadState {ThreadState::INIT};
-    tbb::atomic<RunState> mRunState {RunState::WAIT};
-    bool mThreadShutdown {false}; 
+    std::atomic<ThreadState> mThreadState {ThreadState::INIT};
+    std::atomic<RunState> mRunState {RunState::WAIT};
+    bool mThreadShutdown {false};
 
     mutable std::mutex mMutexBoot;
     std::condition_variable mCvBoot; // using by threadMain boot sequence

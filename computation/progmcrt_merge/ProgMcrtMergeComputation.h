@@ -28,10 +28,15 @@
 #include <scene_rdl2/common/grid_util/Parser.h>
 #include <scene_rdl2/common/math/Viewport.h>
 
+#ifdef TBB_ONEAPI
+#include <oneapi/tbb/global_control.h>
+#else
 #include <tbb/task_scheduler_init.h>
+#endif
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -130,7 +135,7 @@ private:
     float mSendProgressToMcrtIntervalSec {2.0f};
 
     // Feedback init callback function for push message
-    const std::function<bool()> mFeedbackInitCallBack {[&]() {initFeedbackFbSender(); return true;}}; 
+    const std::function<bool()> mFeedbackInitCallBack {[&]() {initFeedbackFbSender(); return true;}};
 
     // for ProgressiveFeedback message
     scene_rdl2::rec_time::RecTime mSendFeedbackTime; // last send feedback message time
@@ -185,10 +190,14 @@ private:
 
     arras4::api::UUID mPrevRecvMsg {""}; // for debug message
 
-    tbb::task_scheduler_init* mTaskScheduler {nullptr};
+#   ifdef TBB_ONEAPI
+    std::optional<oneapi::tbb::global_control> mTbbGlobalControl;
+#   else
+    std::unique_ptr<tbb::task_scheduler_init> mTaskScheduler;
+#   endif
 
     std::string mSource;        // source id, correlating incoming to outgoing messages
-    
+
     int mInitialCredit {-1};
     int mCredit {-1};           // limits sending of outgoing messages. <0 disables.
     bool mSendCredit {false};   // if true (the default), send credit to mcrts

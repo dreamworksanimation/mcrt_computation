@@ -23,6 +23,12 @@
 #include <scene_rdl2/render/cache/CacheEnqueue.h>
 #include <scene_rdl2/render/util/StrUtil.h>
 
+#ifdef TBB_ONEAPI
+#include <oneapi/tbb/info.h>
+#else
+#include <tbb/task_scheduler_init.h>
+#endif
+
 #include <cmath> // round()
 #include <cstdlib>
 #include <stdint.h>
@@ -63,15 +69,18 @@ ProgMcrtMergeComputation::ProgMcrtMergeComputation(arras4::api::ComputationEnvir
     }
 #   endif // end USE_RAAS_DEBUG_FILENAME
 
-    // TODO : 
+    // TODO :
     // Currently mPartialMergeTilesTotal is hard coded as 2048 at this moment.
     // As a result, output bandwidth is adjust around 5~6MByte/sec for Glendale DWA render farm.
     // This number should be dynamically updated based on availability of bandwidth between
     // merger and client. Related tickets are MOONRAY-3139, MOONRAY-3107
 }
-    
+
 ProgMcrtMergeComputation::~ProgMcrtMergeComputation()
 {
+#ifdef TBB_ONEAPI
+    mTbbGlobalControl.reset();
+#endif
 }
 
 arras4::api::Result
@@ -86,7 +95,7 @@ ProgMcrtMergeComputation::configure(const std::string& op,
     } else if (op == "stop") {
         return arras4::api::Result::Success;
     } else if (op != "initialize") {
-        return arras4::api::Result::Unknown; 
+        return arras4::api::Result::Unknown;
     }
 
     if (aConfig["numMachines"].isIntegral()) {
@@ -110,7 +119,7 @@ ProgMcrtMergeComputation::configure(const std::string& op,
     if (aConfig[arras4::api::ConfigNames::maxThreads].isIntegral()) {
         mNumThreads = aConfig[arras4::api::ConfigNames::maxThreads].asInt();
     } else {
-        mNumThreads = tbb::task_scheduler_init::default_num_threads();
+        mNumThreads = std::thread::hardware_concurrency();
     }
 
     if (aConfig["packTilePrecision"].isString()) {
@@ -136,7 +145,7 @@ ProgMcrtMergeComputation::configure(const std::string& op,
     if (aConfig["initialCredit"].isIntegral()) {
         mInitialCredit = aConfig["initialCredit"].asInt();
     }
-    
+
     if (aConfig["sendCredit"].isBool()) {
         mSendCredit = aConfig["sendCredit"].asBool();
     }
@@ -146,7 +155,7 @@ ProgMcrtMergeComputation::configure(const std::string& op,
 
 void
 ProgMcrtMergeComputation::onStart()
-{  
+{
     parserConfigureGenericMessage();
     parserConfigureDebugCommand();
     parserConfigureDebugCommandSnapshotDeltaRec();
@@ -160,7 +169,7 @@ ProgMcrtMergeComputation::onStart()
     // reset current credit to initial credit. If this is >= 0, credit rate control will be enabled
     // otherwise it is inactive
     mCredit = mInitialCredit;
-    
+
     {
         mGlobalNodeInfo.setMergeHostName(mcrt_dataio::MiscUtil::getHostName());
         mGlobalNodeInfo.setMergeClockDeltaSvrPort(20202); // hard coded port number
@@ -184,7 +193,12 @@ ProgMcrtMergeComputation::onStart()
 #       ifdef DEVELOP_VER_MESSAGE
         std::cerr << ">> ProgMcrtMergeComputation.cc set TBB numThreads:" << mNumThreads << std::endl;
 #       endif // end DEVELOP_VER_MESSAGE
-        mTaskScheduler = new tbb::task_scheduler_init(mNumThreads);
+
+#       ifdef TBB_ONEAPI
+        mTbbGlobalControl.emplace(oneapi::tbb::global_control::max_allowed_parallelism, mNumThreads);
+#       else
+        mTaskScheduler = std::make_unique<tbb::task_scheduler_init>(mNumThreads);
+#       endif
     }
 
     //------------------------------
@@ -209,7 +223,7 @@ ProgMcrtMergeComputation::onStart()
     ProgMcrtMergeClockDeltaDriver::init(mGlobalNodeInfo);
 }
 
-void 
+void
 ProgMcrtMergeComputation::setSource(arras4::api::ObjectConstRef source)
 {
     if (source.isString()) {
@@ -303,7 +317,7 @@ ProgMcrtMergeComputation::onMessage(const arras4::api::Message& aMsg)
 
         arras4::api::Object source = aMsg.get(arras4::api::MessageData::sourceId);
         setSource(source);
-        
+
         mcrt::ProgressiveFrame::ConstPtr progressive = aMsg.contentAs<mcrt::ProgressiveFrame>();
         {
             std::vector<uint32_t> logData;
@@ -394,15 +408,15 @@ ProgMcrtMergeComputation::onMessage(const arras4::api::Message& aMsg)
     return arras4::api::Result::Success;
 }
 
-void 
+void
 ProgMcrtMergeComputation::onCreditUpdate(const arras4::api::Message& msg)
 {
     if (mCredit >= 0) {
         mcrt::CreditUpdate::ConstPtr c = msg.contentAs<mcrt::CreditUpdate>();
-        if (c) c->applyTo(mCredit,mInitialCredit);  
+        if (c) c->applyTo(mCredit,mInitialCredit);
     }
 }
-  
+
 void
 ProgMcrtMergeComputation::sendCredit(const arras4::api::Message& msg)
 {
@@ -452,12 +466,12 @@ ProgMcrtMergeComputation::onViewportChanged(const mcrt::BaseFrame& msg)
     // This mFeedbackActive condition is not propergated into FbMsgSingleFrame object yet. However, seting
     // mFeedbackActive into FbMsgSingleFrame object would happen just after finishing this function.
     // So we can use mFeedbackActive safely here.
-    // Also, mFeedbackActive is only updated by debug command and we don¡Çt need to MTlock logic to access
+    // Also, mFeedbackActive is only updated by debug command and we donÂ¡Ã‡t need to MTlock logic to access
     // mFeedbackActive here.
-    //        
+    //
     if (mFeedbackActive && mFeedbackIntervalSec > 0.0f) {
         initFeedbackFbSender();
-    }        
+    }
 
     mLastTime = scene_rdl2::util::getSeconds();
 }
@@ -641,8 +655,8 @@ ProgMcrtMergeComputation::decodeMergeSendProgressiveFrame(std::vector<std::strin
     mFbSender.timeLogEnq(scene_rdl2::grid_util::LatencyItem::Key::MERGE_SNAPSHOT_END);
 
     sendCompleteToMcrt();
-    sendProgressiveFrame(infoDataArray); // send ProgressiveFrame message to downstream 
-    mFbSender.timeLogReset();        
+    sendProgressiveFrame(infoDataArray); // send ProgressiveFrame message to downstream
+    mFbSender.timeLogReset();
 
     mLastPacketSentTime = scene_rdl2::util::getSeconds();
     if (infoDataArray.size()) {
@@ -721,7 +735,7 @@ ProgMcrtMergeComputation::sendProgressiveFrame(std::vector<std::string>& infoDat
         mFbSender.addRenderOutput(frameMsg);
     }
 
-    mFbSender.addLatencyLog(frameMsg); // latencyLog/upstreamLatencyLog staff        
+    mFbSender.addLatencyLog(frameMsg); // latencyLog/upstreamLatencyLog staff
 
     if (infoDataArray.size()) {
         mFbSender.addAuxInfo(frameMsg, infoDataArray);
@@ -753,7 +767,7 @@ ProgMcrtMergeComputation::sendProgressiveFrame(std::vector<std::string>& infoDat
                       << mStats.show(mElapsedSecFromStart.end()) << '\n';
             mStats.reset();
             mLastDisplayTime.start();
-        }        
+        }
     }
 #   endif // end DEBUG_MESSAGE_SEND_PROGRESSIVE
 }
@@ -807,7 +821,7 @@ ProgMcrtMergeComputation::sendProgressUpdateToMcrt()
     if (mSendProgressToMcrtTime.end() < mSendProgressToMcrtIntervalSec) {
         return;
     }
-    
+
     uint32_t syncId = mFbMsgMultiFrames->getDisplaySyncFrameId();
     float fraction = mFbSender.getProgressFraction();
 
@@ -828,7 +842,7 @@ ProgMcrtMergeComputation::sendProgressUpdateToMcrt()
 void
 ProgMcrtMergeComputation::processFeedback()
 {
-    scene_rdl2::rec_time::RecTime recTimeEvalFeedback;    
+    scene_rdl2::rec_time::RecTime recTimeEvalFeedback;
     recTimeEvalFeedback.start();
 
     uint32_t currSyncId = mFbMsgMultiFrames->getDisplaySyncFrameId();
@@ -896,7 +910,7 @@ ProgMcrtMergeComputation::processFeedback()
     }
 
     // Under regular progressiveFrame data send to the client situation, we update denoise related
-    // information here, but we technically don¡Çt need these information under feedback logic.
+    // information here, but we technically donÂ¡Ã‡t need these information under feedback logic.
     // So we just skip them.
 
     // We have to update mLastSentFeedbackSyncId for next feedback message
@@ -948,7 +962,7 @@ ProgMcrtMergeComputation::processFeedback()
     feedbackMsg->mFeedbackId = mFeedbackId;
     feedbackMsg->mProgressiveFrame = frameMsg;
     send(feedbackMsg, arras4::api::withSource(mSource));
-    
+
     mSendFeedbackTime.start(); // update last send feedback time
 
     sendBpsUpdate(feedbackMsg->serializedLength());
@@ -987,7 +1001,7 @@ ProgMcrtMergeComputation::recvBpsUpdate(mcrt::ProgressiveFrame::ConstPtr frameMs
     for (const mcrt::BaseFrame::DataBuffer &buffer: frameMsg->mBuffers) {
         dataSizeTotal += buffer.mDataLength;
     }
-    mRecvBandwidthTracker.set(dataSizeTotal); // byte    
+    mRecvBandwidthTracker.set(dataSizeTotal); // byte
 }
 
 void
@@ -996,7 +1010,7 @@ ProgMcrtMergeComputation::sendBpsUpdate(size_t messageSerializedByte)
     mSendBandwidthTracker.set(messageSerializedByte);
 }
 
-uint64_t    
+uint64_t
 ProgMcrtMergeComputation::calcMessageSize(mcrt::BaseFrame& frameMsg) const
 {
     uint64_t msgSizeAll = 0;
@@ -1124,7 +1138,7 @@ void
 ProgMcrtMergeComputation::parserConfigureDebugCommandSnapshotDeltaRec()
 {
     Parser& parser = mParserDebugCommandSnapshotDeltaRec;
-    
+
     parser.description("snapshotDeltaRec command");
     parser.opt("start", "", "start snapshot delta rec",
                [&](Arg& arg) -> bool {
@@ -1159,7 +1173,7 @@ void
 ProgMcrtMergeComputation::parserConfigureDebugCommandInitialFrame()
 {
     Parser& parser = mParserDebugCommandInitialFrame;
-    
+
     parser.description("initial frame control command ");
     parser.opt("parallel", "<on|off>", "set special parallel initial frame update mode",
                [&](Arg& arg) -> bool {
@@ -1248,7 +1262,7 @@ ProgMcrtMergeComputation::sendClockDeltaClientToDispatch()
     mMsgSendHandler->sendMessage(ostr.str());
 }
 
-std::string    
+std::string
 ProgMcrtMergeComputation::showParallelInitialFrameControlInfo() const
 {
     std::ostringstream ostr;
