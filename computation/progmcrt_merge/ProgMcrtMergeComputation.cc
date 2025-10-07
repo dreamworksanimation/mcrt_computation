@@ -33,6 +33,7 @@
 #include <cstdlib>
 #include <stdint.h>
 #include <string>
+#include <thread>
 
 // This directive is used only for development purpose.
 // This directive shows some debug messages to the stderr in order to make
