@@ -47,3 +47,6 @@ bamboo_tools
 SConstruct
 site_scons
 boot
+
+# gha created files
+.ci_githooks
